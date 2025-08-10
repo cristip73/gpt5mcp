@@ -16,14 +16,19 @@ interface GPT5ResponseRequest {
   reasoning?: {
     effort?: 'low' | 'medium' | 'high';
   };
+  text?: {
+    verbosity?: 'low' | 'medium' | 'high';
+  };
   tools?: Array<{
     type: 'web_search_preview' | 'file_search' | 'function';
     [key: string]: any;
   }>;
   stream?: boolean;
-  max_tokens?: number;
+  max_output_tokens?: number;
   temperature?: number;
   top_p?: number;
+  parallel_tool_calls?: boolean;
+  store?: boolean;
 }
 
 interface GPT5Response {
@@ -52,9 +57,13 @@ export async function callGPT5(
     model?: string;
     instructions?: string;
     reasoning_effort?: 'low' | 'medium' | 'high';
+    verbosity?: 'low' | 'medium' | 'high';
     max_tokens?: number;
     temperature?: number;
     top_p?: number;
+    stream?: boolean;
+    parallel_tool_calls?: boolean;
+    store?: boolean;
     tools?: Array<{
       type: 'web_search_preview' | 'file_search' | 'function';
       [key: string]: any;
@@ -66,8 +75,14 @@ export async function callGPT5(
     input,
     ...(options.instructions && { instructions: options.instructions }),
     ...(options.reasoning_effort && { reasoning: { effort: options.reasoning_effort } }),
+    ...(options.verbosity && { text: { verbosity: options.verbosity } }),
     ...(options.tools && { tools: options.tools }),
-    stream: false
+    ...(options.max_tokens && { max_output_tokens: options.max_tokens }),
+    ...(options.temperature !== undefined && { temperature: options.temperature }),
+    ...(options.top_p !== undefined && { top_p: options.top_p }),
+    ...(options.parallel_tool_calls !== undefined && { parallel_tool_calls: options.parallel_tool_calls }),
+    ...(options.store !== undefined && { store: options.store }),
+    stream: options.stream || false
   };
 
   console.error('Making GPT-5 API request:', JSON.stringify(requestBody, null, 2));
@@ -111,9 +126,13 @@ export async function callGPT5WithMessages(
     model?: string;
     instructions?: string;
     reasoning_effort?: 'low' | 'medium' | 'high';
+    verbosity?: 'low' | 'medium' | 'high';
     max_tokens?: number;
     temperature?: number;
     top_p?: number;
+    stream?: boolean;
+    parallel_tool_calls?: boolean;
+    store?: boolean;
     tools?: Array<{
       type: 'web_search_preview' | 'file_search' | 'function';
       [key: string]: any;
@@ -125,8 +144,14 @@ export async function callGPT5WithMessages(
     input: messages,
     ...(options.instructions && { instructions: options.instructions }),
     ...(options.reasoning_effort && { reasoning: { effort: options.reasoning_effort } }),
+    ...(options.verbosity && { text: { verbosity: options.verbosity } }),
     ...(options.tools && { tools: options.tools }),
-    stream: false
+    ...(options.max_tokens && { max_output_tokens: options.max_tokens }),
+    ...(options.temperature !== undefined && { temperature: options.temperature }),
+    ...(options.top_p !== undefined && { top_p: options.top_p }),
+    ...(options.parallel_tool_calls !== undefined && { parallel_tool_calls: options.parallel_tool_calls }),
+    ...(options.store !== undefined && { store: options.store }),
+    stream: options.stream || false
   };
 
   console.error('Making GPT-5 API request with messages:', JSON.stringify(requestBody, null, 2));

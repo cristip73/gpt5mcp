@@ -25,25 +25,33 @@ console.error("Environment loaded from:", envPath);
 // Schema definitions
 const GPT5GenerateSchema = z.object({
   input: z.string().describe("The input text or prompt for GPT-5"),
-  model: z.string().optional().default("gpt-5").describe("GPT-5 model variant to use"),
-  instructions: z.string().optional().describe("System instructions for the model"),
-  reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning effort level"),
-  max_tokens: z.number().optional().describe("Maximum tokens to generate"),
-  temperature: z.number().min(0).max(2).optional().describe("Temperature for randomness (0-2)"),
-  top_p: z.number().min(0).max(1).optional().describe("Top-p sampling parameter")
+  model: z.enum(['gpt-5', 'gpt-5-mini', 'gpt-5-nano']).optional().default("gpt-5").describe("Model variant: gpt-5 (best quality), gpt-5-mini (cost-effective), gpt-5-nano (ultra-fast)"),
+  instructions: z.string().optional().describe("System instructions to guide model behavior"),
+  reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning depth: omit for no reasoning, 'low' for minimal, 'medium' for balanced, 'high' for thorough"),
+  verbosity: z.enum(['low', 'medium', 'high']).optional().describe("Output length control: 'low' for concise, 'medium' for standard, 'high' for comprehensive"),
+  max_tokens: z.number().min(1).max(128000).optional().describe("Max output tokens (1-128000). Default varies by model"),
+  temperature: z.number().min(0).max(2).optional().default(1).describe("Randomness (0-2): 0=deterministic, 1=balanced, 2=creative"),
+  top_p: z.number().min(0).max(1).optional().default(1).describe("Nucleus sampling (0-1): lower=focused, higher=diverse"),
+  stream: z.boolean().optional().default(false).describe("Stream response progressively (not recommended for MCP)"),
+  parallel_tool_calls: z.boolean().optional().describe("Allow multiple tool calls in parallel"),
+  store: z.boolean().optional().default(true).describe("Store conversation for model improvement")
 });
 
 const GPT5MessagesSchema = z.object({
   messages: z.array(z.object({
-    role: z.enum(['user', 'developer', 'assistant']).describe("Message role"),
-    content: z.string().describe("Message content")
-  })).describe("Array of conversation messages"),
-  model: z.string().optional().default("gpt-5").describe("GPT-5 model variant to use"),
-  instructions: z.string().optional().describe("System instructions for the model"),
-  reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning effort level"),
-  max_tokens: z.number().optional().describe("Maximum tokens to generate"),
-  temperature: z.number().min(0).max(2).optional().describe("Temperature for randomness (0-2)"),
-  top_p: z.number().min(0).max(1).optional().describe("Top-p sampling parameter")
+    role: z.enum(['user', 'developer', 'assistant']).describe("Role: 'user' for human input, 'developer' for system context, 'assistant' for AI responses"),
+    content: z.string().describe("Message text content")
+  })).describe("Conversation history as array of role/content pairs"),
+  model: z.enum(['gpt-5', 'gpt-5-mini', 'gpt-5-nano']).optional().default("gpt-5").describe("Model variant: gpt-5 (best quality), gpt-5-mini (cost-effective), gpt-5-nano (ultra-fast)"),
+  instructions: z.string().optional().describe("System instructions to guide model behavior"),
+  reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning depth: omit for no reasoning, 'low' for minimal, 'medium' for balanced, 'high' for thorough"),
+  verbosity: z.enum(['low', 'medium', 'high']).optional().describe("Output length control: 'low' for concise, 'medium' for standard, 'high' for comprehensive"),
+  max_tokens: z.number().min(1).max(128000).optional().describe("Max output tokens (1-128000). Default varies by model"),
+  temperature: z.number().min(0).max(2).optional().default(1).describe("Randomness (0-2): 0=deterministic, 1=balanced, 2=creative"),
+  top_p: z.number().min(0).max(1).optional().default(1).describe("Nucleus sampling (0-1): lower=focused, higher=diverse"),
+  stream: z.boolean().optional().default(false).describe("Stream response progressively (not recommended for MCP)"),
+  parallel_tool_calls: z.boolean().optional().describe("Allow multiple tool calls in parallel"),
+  store: z.boolean().optional().default(true).describe("Store conversation for model improvement")
 });
 
 
@@ -117,9 +125,13 @@ async function main() {
               model: args.model,
               instructions: args.instructions,
               reasoning_effort: args.reasoning_effort,
+              verbosity: args.verbosity,
               max_tokens: args.max_tokens,
               temperature: args.temperature,
-              top_p: args.top_p
+              top_p: args.top_p,
+              stream: args.stream,
+              parallel_tool_calls: args.parallel_tool_calls,
+              store: args.store
             });
             
             let responseText = result.content;
@@ -143,9 +155,13 @@ async function main() {
               model: args.model,
               instructions: args.instructions,
               reasoning_effort: args.reasoning_effort,
+              verbosity: args.verbosity,
               max_tokens: args.max_tokens,
               temperature: args.temperature,
-              top_p: args.top_p
+              top_p: args.top_p,
+              stream: args.stream,
+              parallel_tool_calls: args.parallel_tool_calls,
+              store: args.store
             });
             
             let responseText = result.content;
