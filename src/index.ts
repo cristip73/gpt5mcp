@@ -133,12 +133,10 @@ async function main() {
               store: args.store
             });
             
-            const responseText = result.content;
-            
             return {
               content: [{
                 type: "text",
-                text: responseText
+                text: result.content
               }]
             };
           }
@@ -162,9 +160,9 @@ async function main() {
             
             let responseText = result.content;
             
-            // Include response ID only - needed for stateful conversations
+            // Include response ID for stateful conversations
             if (result.response_id) {
-              responseText += `\n\n[ID: ${result.response_id}]`;
+              responseText += `\n\n**Response ID:** ${result.response_id}`;
             }
             
             return {
