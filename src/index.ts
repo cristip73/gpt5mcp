@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { callGPT5, callGPT5WithMessages } from './utils.js';
+import { callGPT5WithMessages } from './utils.js';
 
 // Initialize environment from parent directory
 import { dirname } from 'path';
@@ -22,21 +22,7 @@ const envPath = path.join(__dirname, '../../.env');
 dotenv.config({ path: envPath });
 console.error("Environment loaded from:", envPath);
 
-// Schema definitions
-const GPT5GenerateSchema = z.object({
-  input: z.string().describe("The input text or prompt for GPT-5"),
-  model: z.enum(['gpt-5', 'gpt-5-mini', 'gpt-5-nano']).optional().default("gpt-5").describe("Model variant: gpt-5 (best quality), gpt-5-mini (cost-effective), gpt-5-nano (ultra-fast)"),
-  instructions: z.string().optional().describe("System instructions to guide model behavior"),
-  reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning depth: omit for no reasoning, 'low' for minimal, 'medium' for balanced, 'high' for thorough. NOTE: Do not set by default - let the model decide"),
-  verbosity: z.enum(['low', 'medium', 'high']).optional().describe("Output length control: 'low' for concise, 'medium' for standard, 'high' for comprehensive"),
-  max_tokens: z.number().min(1).max(128000).optional().describe("Max output tokens (1-128000). Default varies by model"),
-  temperature: z.number().min(0).max(2).optional().default(1).describe("Randomness (0-2): 0=deterministic, 1=balanced, 2=creative (NOT SUPPORTED by GPT-5 - will cause error)"),
-  top_p: z.number().min(0).max(1).optional().default(1).describe("Nucleus sampling (0-1): lower=focused, higher=diverse"),
-  parallel_tool_calls: z.boolean().optional().describe("Allow multiple tool calls in parallel"),
-  store: z.boolean().optional().default(true).describe("Store conversation for model improvement")
-});
-// Note: Streaming is disabled for MCP compatibility - MCP requires complete responses
-
+// Schema definition
 const GPT5MessagesSchema = z.object({
   messages: z.array(z.object({
     role: z.enum(['user', 'developer', 'assistant']).describe("Role: 'user' for human input, 'developer' for system context, 'assistant' for AI responses"),
@@ -45,7 +31,7 @@ const GPT5MessagesSchema = z.object({
   previous_response_id: z.string().optional().describe("ID from a previous response to continue the conversation (stateful mode). When provided, messages should only contain new messages, not the full history"),
   model: z.enum(['gpt-5', 'gpt-5-mini', 'gpt-5-nano']).optional().default("gpt-5").describe("Model variant: gpt-5 (best quality), gpt-5-mini (cost-effective), gpt-5-nano (ultra-fast)"),
   instructions: z.string().optional().describe("System instructions to guide model behavior"),
-  reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning depth: omit for no reasoning, 'low' for minimal, 'medium' for balanced, 'high' for thorough. NOTE: Do not set by default - let the model decide"),
+  reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning depth: 'low' for minimal (recommended), 'medium' for balanced (default if reasoning depth omitted), 'high' for thorough"),
   verbosity: z.enum(['low', 'medium', 'high']).optional().describe("Output length control: 'low' for concise, 'medium' for standard, 'high' for comprehensive"),
   max_tokens: z.number().min(1).max(128000).optional().describe("Max output tokens (1-128000). Default varies by model"),
   temperature: z.number().min(0).max(2).optional().default(1).describe("Randomness (0-2): 0=deterministic, 1=balanced, 2=creative (NOT SUPPORTED by GPT-5 - will cause error)"),
@@ -55,8 +41,7 @@ const GPT5MessagesSchema = z.object({
 });
 
 
-// Type definitions
-type GPT5GenerateArgs = z.infer<typeof GPT5GenerateSchema>;
+// Type definition
 type GPT5MessagesArgs = z.infer<typeof GPT5MessagesSchema>;
 
 // Main function
@@ -96,11 +81,6 @@ async function main() {
       return {
         tools: [
           {
-            name: "gpt5_generate",
-            description: "Generate text using OpenAI GPT-5 API with a simple input prompt",
-            inputSchema: zodToJsonSchema(GPT5GenerateSchema),
-          },
-          {
             name: "gpt5_messages",
             description: "Generate text using GPT-5 with structured conversation messages",
             inputSchema: zodToJsonSchema(GPT5MessagesSchema),
@@ -117,30 +97,6 @@ async function main() {
       
       try {
         switch (request.params.name) {
-          case "gpt5_generate": {
-            const args = GPT5GenerateSchema.parse(request.params.arguments) as GPT5GenerateArgs;
-            console.error(`GPT-5 Generate: "${args.input.substring(0, 100)}..."`);
-            
-            const result = await callGPT5(process.env.OPENAI_API_KEY!, args.input, {
-              model: args.model,
-              instructions: args.instructions,
-              reasoning_effort: args.reasoning_effort,
-              verbosity: args.verbosity,
-              max_tokens: args.max_tokens,
-              temperature: args.temperature,
-              top_p: args.top_p,
-              parallel_tool_calls: args.parallel_tool_calls,
-              store: args.store
-            });
-            
-            return {
-              content: [{
-                type: "text",
-                text: JSON.stringify(result.raw_response, null, 2)
-              }]
-            };
-          }
-          
           case "gpt5_messages": {
             const args = GPT5MessagesSchema.parse(request.params.arguments) as GPT5MessagesArgs;
             console.error(`GPT-5 Messages: ${args.messages.length} messages${args.previous_response_id ? ' (stateful mode)' : ''}`);
