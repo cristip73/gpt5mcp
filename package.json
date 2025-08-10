@@ -1,0 +1,49 @@
+{
+  "name": "gpt5mcp",
+  "version": "1.0.0",
+  "description": "A Model Context Protocol (MCP) server that provides seamless integration with OpenAI's GPT-5 API through Claude Code. This server enables you to leverage GPT-5's advanced capabilities directly within your Claude Code workflows.",
+  "main": "orbitale.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "dependencies": {
+    "bytes": "^3.1.2",
+    "content-type": "^1.0.5",
+    "data-uri-to-buffer": "^4.0.1",
+    "depd": "^2.0.0",
+    "dotenv": "^16.6.1",
+    "fetch-blob": "^3.2.0",
+    "formdata-polyfill": "^4.0.10",
+    "http-errors": "^2.0.0",
+    "iconv-lite": "^0.6.3",
+    "inherits": "^2.0.4",
+    "node-domexception": "^1.0.0",
+    "node-fetch": "^3.3.2",
+    "raw-body": "^3.0.0",
+    "safer-buffer": "^2.1.2",
+    "setprototypeof": "^1.2.0",
+    "statuses": "^2.0.1",
+    "toidentifier": "^1.0.1",
+    "typescript": "^5.9.2",
+    "undici-types": "^6.21.0",
+    "unpipe": "^1.0.0",
+    "web-streams-polyfill": "^3.3.3",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.6"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AllAboutAI-YT/gpt5mcp.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/AllAboutAI-YT/gpt5mcp/issues"
+  },
+  "homepage": "https://github.com/AllAboutAI-YT/gpt5mcp#readme"
+}
