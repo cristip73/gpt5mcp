@@ -29,6 +29,7 @@ interface GPT5ResponseRequest {
   top_p?: number;
   parallel_tool_calls?: boolean;
   store?: boolean;
+  previous_response_id?: string;
 }
 
 interface GPT5Response {
@@ -86,7 +87,7 @@ export async function callGPT5(
       [key: string]: any;
     }>;
   } = {}
-): Promise<{ content: string; usage?: any }> {
+): Promise<{ content: string; usage?: any; response_id?: string }> {
   const requestBody: GPT5ResponseRequest = {
     model: options.model || 'gpt-5',
     input,
@@ -155,7 +156,8 @@ export async function callGPT5(
 
   return {
     content: textContent,
-    usage: data.usage
+    usage: data.usage,
+    response_id: data.id
   };
 }
 
@@ -181,12 +183,13 @@ export async function callGPT5WithMessages(
     top_p?: number;
     parallel_tool_calls?: boolean;
     store?: boolean;
+    previous_response_id?: string;
     tools?: Array<{
       type: 'web_search_preview' | 'file_search' | 'function';
       [key: string]: any;
     }>;
   } = {}
-): Promise<{ content: string; usage?: any }> {
+): Promise<{ content: string; usage?: any; response_id?: string }> {
   const requestBody: GPT5ResponseRequest = {
     model: options.model || 'gpt-5',
     input: messages,
@@ -199,6 +202,7 @@ export async function callGPT5WithMessages(
     ...(options.top_p !== undefined && { top_p: options.top_p }),
     ...(options.parallel_tool_calls !== undefined && { parallel_tool_calls: options.parallel_tool_calls }),
     ...(options.store !== undefined && { store: options.store }),
+    ...(options.previous_response_id && { previous_response_id: options.previous_response_id }),
     // Streaming is disabled for MCP compatibility - MCP requires complete responses
     stream: false
   };
@@ -255,7 +259,8 @@ export async function callGPT5WithMessages(
 
   return {
     content: textContent,
-    usage: data.usage
+    usage: data.usage,
+    response_id: data.id
   };
 }
 

@@ -41,7 +41,8 @@ const GPT5MessagesSchema = z.object({
   messages: z.array(z.object({
     role: z.enum(['user', 'developer', 'assistant']).describe("Role: 'user' for human input, 'developer' for system context, 'assistant' for AI responses"),
     content: z.string().describe("Message text content")
-  })).describe("Conversation history as array of role/content pairs"),
+  })).describe("Conversation history as array of role/content pairs. When using previous_response_id, only include new messages"),
+  previous_response_id: z.string().optional().describe("ID from a previous response to continue the conversation (stateful mode). When provided, messages should only contain new messages, not the full history"),
   model: z.enum(['gpt-5', 'gpt-5-mini', 'gpt-5-nano']).optional().default("gpt-5").describe("Model variant: gpt-5 (best quality), gpt-5-mini (cost-effective), gpt-5-nano (ultra-fast)"),
   instructions: z.string().optional().describe("System instructions to guide model behavior"),
   reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning depth: omit for no reasoning, 'low' for minimal, 'medium' for balanced, 'high' for thorough"),
@@ -132,10 +133,7 @@ async function main() {
               store: args.store
             });
             
-            let responseText = result.content;
-            if (result.usage) {
-              responseText += `\n\n**Usage:** ${result.usage.prompt_tokens} prompt tokens, ${result.usage.completion_tokens} completion tokens, ${result.usage.total_tokens} total tokens`;
-            }
+            const responseText = result.content;
             
             return {
               content: [{
@@ -147,7 +145,7 @@ async function main() {
           
           case "gpt5_messages": {
             const args = GPT5MessagesSchema.parse(request.params.arguments) as GPT5MessagesArgs;
-            console.error(`GPT-5 Messages: ${args.messages.length} messages`);
+            console.error(`GPT-5 Messages: ${args.messages.length} messages${args.previous_response_id ? ' (stateful mode)' : ''}`);
             
             const result = await callGPT5WithMessages(process.env.OPENAI_API_KEY!, args.messages, {
               model: args.model,
@@ -158,12 +156,15 @@ async function main() {
               temperature: args.temperature,
               top_p: args.top_p,
               parallel_tool_calls: args.parallel_tool_calls,
-              store: args.store
+              store: args.store,
+              previous_response_id: args.previous_response_id
             });
             
             let responseText = result.content;
-            if (result.usage) {
-              responseText += `\n\n**Usage:** ${result.usage.prompt_tokens} prompt tokens, ${result.usage.completion_tokens} completion tokens, ${result.usage.total_tokens} total tokens`;
+            
+            // Include response ID only - needed for stateful conversations
+            if (result.response_id) {
+              responseText += `\n\n[ID: ${result.response_id}]`;
             }
             
             return {
