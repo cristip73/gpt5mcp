@@ -30,7 +30,7 @@ const GPT5GenerateSchema = z.object({
   reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning depth: omit for no reasoning, 'low' for minimal, 'medium' for balanced, 'high' for thorough"),
   verbosity: z.enum(['low', 'medium', 'high']).optional().describe("Output length control: 'low' for concise, 'medium' for standard, 'high' for comprehensive"),
   max_tokens: z.number().min(1).max(128000).optional().describe("Max output tokens (1-128000). Default varies by model"),
-  temperature: z.number().min(0).max(2).optional().default(1).describe("Randomness (0-2): 0=deterministic, 1=balanced, 2=creative"),
+  temperature: z.number().min(0).max(2).optional().default(1).describe("Randomness (0-2): 0=deterministic, 1=balanced, 2=creative (NOT SUPPORTED by GPT-5 - will be ignored)"),
   top_p: z.number().min(0).max(1).optional().default(1).describe("Nucleus sampling (0-1): lower=focused, higher=diverse"),
   parallel_tool_calls: z.boolean().optional().describe("Allow multiple tool calls in parallel"),
   store: z.boolean().optional().default(true).describe("Store conversation for model improvement")
@@ -48,7 +48,7 @@ const GPT5MessagesSchema = z.object({
   reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning depth: omit for no reasoning, 'low' for minimal, 'medium' for balanced, 'high' for thorough"),
   verbosity: z.enum(['low', 'medium', 'high']).optional().describe("Output length control: 'low' for concise, 'medium' for standard, 'high' for comprehensive"),
   max_tokens: z.number().min(1).max(128000).optional().describe("Max output tokens (1-128000). Default varies by model"),
-  temperature: z.number().min(0).max(2).optional().default(1).describe("Randomness (0-2): 0=deterministic, 1=balanced, 2=creative"),
+  temperature: z.number().min(0).max(2).optional().default(1).describe("Randomness (0-2): 0=deterministic, 1=balanced, 2=creative (NOT SUPPORTED by GPT-5 - will be ignored)"),
   top_p: z.number().min(0).max(1).optional().default(1).describe("Nucleus sampling (0-1): lower=focused, higher=diverse"),
   parallel_tool_calls: z.boolean().optional().describe("Allow multiple tool calls in parallel"),
   store: z.boolean().optional().default(true).describe("Store conversation for model improvement")
