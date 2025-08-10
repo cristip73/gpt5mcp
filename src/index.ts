@@ -32,10 +32,10 @@ const GPT5GenerateSchema = z.object({
   max_tokens: z.number().min(1).max(128000).optional().describe("Max output tokens (1-128000). Default varies by model"),
   temperature: z.number().min(0).max(2).optional().default(1).describe("Randomness (0-2): 0=deterministic, 1=balanced, 2=creative"),
   top_p: z.number().min(0).max(1).optional().default(1).describe("Nucleus sampling (0-1): lower=focused, higher=diverse"),
-  stream: z.boolean().optional().default(false).describe("Stream response progressively (not recommended for MCP)"),
   parallel_tool_calls: z.boolean().optional().describe("Allow multiple tool calls in parallel"),
   store: z.boolean().optional().default(true).describe("Store conversation for model improvement")
 });
+// Note: Streaming is disabled for MCP compatibility - MCP requires complete responses
 
 const GPT5MessagesSchema = z.object({
   messages: z.array(z.object({
@@ -49,7 +49,6 @@ const GPT5MessagesSchema = z.object({
   max_tokens: z.number().min(1).max(128000).optional().describe("Max output tokens (1-128000). Default varies by model"),
   temperature: z.number().min(0).max(2).optional().default(1).describe("Randomness (0-2): 0=deterministic, 1=balanced, 2=creative"),
   top_p: z.number().min(0).max(1).optional().default(1).describe("Nucleus sampling (0-1): lower=focused, higher=diverse"),
-  stream: z.boolean().optional().default(false).describe("Stream response progressively (not recommended for MCP)"),
   parallel_tool_calls: z.boolean().optional().describe("Allow multiple tool calls in parallel"),
   store: z.boolean().optional().default(true).describe("Store conversation for model improvement")
 });
@@ -129,7 +128,6 @@ async function main() {
               max_tokens: args.max_tokens,
               temperature: args.temperature,
               top_p: args.top_p,
-              stream: args.stream,
               parallel_tool_calls: args.parallel_tool_calls,
               store: args.store
             });
@@ -159,7 +157,6 @@ async function main() {
               max_tokens: args.max_tokens,
               temperature: args.temperature,
               top_p: args.top_p,
-              stream: args.stream,
               parallel_tool_calls: args.parallel_tool_calls,
               store: args.store
             });

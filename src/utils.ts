@@ -61,7 +61,6 @@ export async function callGPT5(
     max_tokens?: number;
     temperature?: number;
     top_p?: number;
-    stream?: boolean;
     parallel_tool_calls?: boolean;
     store?: boolean;
     tools?: Array<{
@@ -82,7 +81,8 @@ export async function callGPT5(
     ...(options.top_p !== undefined && { top_p: options.top_p }),
     ...(options.parallel_tool_calls !== undefined && { parallel_tool_calls: options.parallel_tool_calls }),
     ...(options.store !== undefined && { store: options.store }),
-    stream: options.stream || false
+    // Streaming is disabled for MCP compatibility - MCP requires complete responses
+    stream: false
   };
 
   console.error('Making GPT-5 API request:', JSON.stringify(requestBody, null, 2));
@@ -130,7 +130,6 @@ export async function callGPT5WithMessages(
     max_tokens?: number;
     temperature?: number;
     top_p?: number;
-    stream?: boolean;
     parallel_tool_calls?: boolean;
     store?: boolean;
     tools?: Array<{
@@ -151,7 +150,8 @@ export async function callGPT5WithMessages(
     ...(options.top_p !== undefined && { top_p: options.top_p }),
     ...(options.parallel_tool_calls !== undefined && { parallel_tool_calls: options.parallel_tool_calls }),
     ...(options.store !== undefined && { store: options.store }),
-    stream: options.stream || false
+    // Streaming is disabled for MCP compatibility - MCP requires complete responses
+    stream: false
   };
 
   console.error('Making GPT-5 API request with messages:', JSON.stringify(requestBody, null, 2));
