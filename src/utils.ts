@@ -87,7 +87,7 @@ export async function callGPT5(
       [key: string]: any;
     }>;
   } = {}
-): Promise<{ content: string; usage?: any; response_id?: string }> {
+): Promise<{ content: string; usage?: any; response_id?: string; raw_response?: any }> {
   const requestBody: GPT5ResponseRequest = {
     model: options.model || 'gpt-5',
     input,
@@ -157,7 +157,8 @@ export async function callGPT5(
   return {
     content: textContent,
     usage: data.usage,
-    response_id: data.id
+    response_id: data.id,
+    raw_response: data
   };
 }
 
@@ -189,7 +190,7 @@ export async function callGPT5WithMessages(
       [key: string]: any;
     }>;
   } = {}
-): Promise<{ content: string; usage?: any; response_id?: string }> {
+): Promise<{ content: string; usage?: any; response_id?: string; raw_response?: any }> {
   const requestBody: GPT5ResponseRequest = {
     model: options.model || 'gpt-5',
     input: messages,
@@ -260,7 +261,8 @@ export async function callGPT5WithMessages(
   return {
     content: textContent,
     usage: data.usage,
-    response_id: data.id
+    response_id: data.id,
+    raw_response: data
   };
 }
 
