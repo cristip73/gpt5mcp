@@ -27,7 +27,7 @@ const GPT5GenerateSchema = z.object({
   input: z.string().describe("The input text or prompt for GPT-5"),
   model: z.enum(['gpt-5', 'gpt-5-mini', 'gpt-5-nano']).optional().default("gpt-5").describe("Model variant: gpt-5 (best quality), gpt-5-mini (cost-effective), gpt-5-nano (ultra-fast)"),
   instructions: z.string().optional().describe("System instructions to guide model behavior"),
-  reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning depth: omit for no reasoning, 'low' for minimal, 'medium' for balanced, 'high' for thorough"),
+  reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning depth: omit for no reasoning, 'low' for minimal, 'medium' for balanced, 'high' for thorough. NOTE: Do not set by default - let the model decide"),
   verbosity: z.enum(['low', 'medium', 'high']).optional().describe("Output length control: 'low' for concise, 'medium' for standard, 'high' for comprehensive"),
   max_tokens: z.number().min(1).max(128000).optional().describe("Max output tokens (1-128000). Default varies by model"),
   temperature: z.number().min(0).max(2).optional().default(1).describe("Randomness (0-2): 0=deterministic, 1=balanced, 2=creative (NOT SUPPORTED by GPT-5 - will cause error)"),
@@ -45,7 +45,7 @@ const GPT5MessagesSchema = z.object({
   previous_response_id: z.string().optional().describe("ID from a previous response to continue the conversation (stateful mode). When provided, messages should only contain new messages, not the full history"),
   model: z.enum(['gpt-5', 'gpt-5-mini', 'gpt-5-nano']).optional().default("gpt-5").describe("Model variant: gpt-5 (best quality), gpt-5-mini (cost-effective), gpt-5-nano (ultra-fast)"),
   instructions: z.string().optional().describe("System instructions to guide model behavior"),
-  reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning depth: omit for no reasoning, 'low' for minimal, 'medium' for balanced, 'high' for thorough"),
+  reasoning_effort: z.enum(['low', 'medium', 'high']).optional().describe("Reasoning depth: omit for no reasoning, 'low' for minimal, 'medium' for balanced, 'high' for thorough. NOTE: Do not set by default - let the model decide"),
   verbosity: z.enum(['low', 'medium', 'high']).optional().describe("Output length control: 'low' for concise, 'medium' for standard, 'high' for comprehensive"),
   max_tokens: z.number().min(1).max(128000).optional().describe("Max output tokens (1-128000). Default varies by model"),
   temperature: z.number().min(0).max(2).optional().default(1).describe("Randomness (0-2): 0=deterministic, 1=balanced, 2=creative (NOT SUPPORTED by GPT-5 - will cause error)"),
@@ -136,7 +136,7 @@ async function main() {
             return {
               content: [{
                 type: "text",
-                text: result.content
+                text: JSON.stringify(result.raw_response, null, 2)
               }]
             };
           }
@@ -158,17 +158,10 @@ async function main() {
               previous_response_id: args.previous_response_id
             });
             
-            let responseText = result.content;
-            
-            // Include response ID for stateful conversations
-            if (result.response_id) {
-              responseText += `\n\n**Response ID:** ${result.response_id}`;
-            }
-            
             return {
               content: [{
                 type: "text",
-                text: responseText
+                text: JSON.stringify(result.raw_response, null, 2)
               }]
             };
           }
