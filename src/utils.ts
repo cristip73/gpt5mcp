@@ -32,21 +32,39 @@ interface GPT5ResponseRequest {
 }
 
 interface GPT5Response {
+  id: string;
+  object: string;
+  created_at: number;
+  status: string;
   output: Array<{
     id: string;
-    type: 'message';
-    role: string;
-    content: Array<{
-      type: 'output_text';
+    type: 'message' | 'reasoning';
+    role?: string;
+    content?: Array<{
+      type: 'output_text' | 'text';
       text: string;
       annotations?: any[];
     }>;
+    summary?: any[];
   }>;
   output_text?: string;
   usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
+    input_tokens: number;
+    output_tokens: number;
     total_tokens: number;
+    input_tokens_details?: {
+      cached_tokens: number;
+    };
+    output_tokens_details?: {
+      reasoning_tokens: number;
+    };
+  };
+  model?: string;
+  text?: {
+    format?: {
+      type: string;
+    };
+    verbosity?: string;
   };
 }
 
@@ -101,11 +119,42 @@ export async function callGPT5(
     throw new Error(`GPT-5 API error: ${response.status} ${response.statusText} - ${errorText}`);
   }
 
-  const data = await response.json() as GPT5Response;
+  const data = await response.json() as any;
   console.error('GPT-5 API response:', JSON.stringify(data, null, 2));
 
+  // Try to extract text content from various possible locations
+  let textContent = '';
+  
+  // Check for direct output_text field
+  if (data.output_text) {
+    textContent = data.output_text;
+  }
+  // Check for text in output array with message type
+  else if (data.output && Array.isArray(data.output)) {
+    for (const item of data.output) {
+      if (item.type === 'message' && item.content) {
+        for (const content of item.content) {
+          if ((content.type === 'output_text' || content.type === 'text') && content.text) {
+            textContent += content.text;
+          }
+        }
+      }
+    }
+  }
+  
+  // If still no text, check if the response indicates incomplete status
+  if (!textContent && data.status === 'incomplete') {
+    textContent = `Response incomplete: ${data.incomplete_details?.reason || 'unknown reason'}`;
+  }
+  
+  // If still no text, provide a debug message
+  if (!textContent) {
+    textContent = `No text content in response. Status: ${data.status}, Model: ${data.model}`;
+    console.error('Warning: No text content found in GPT-5 response');
+  }
+
   return {
-    content: data.output_text || (data.output?.[0]?.content?.[0]?.text) || JSON.stringify(data, null, 2),
+    content: textContent,
     usage: data.usage
   };
 }
@@ -170,11 +219,42 @@ export async function callGPT5WithMessages(
     throw new Error(`GPT-5 API error: ${response.status} ${response.statusText} - ${errorText}`);
   }
 
-  const data = await response.json() as GPT5Response;
+  const data = await response.json() as any;
   console.error('GPT-5 API response:', JSON.stringify(data, null, 2));
 
+  // Try to extract text content from various possible locations
+  let textContent = '';
+  
+  // Check for direct output_text field
+  if (data.output_text) {
+    textContent = data.output_text;
+  }
+  // Check for text in output array with message type
+  else if (data.output && Array.isArray(data.output)) {
+    for (const item of data.output) {
+      if (item.type === 'message' && item.content) {
+        for (const content of item.content) {
+          if ((content.type === 'output_text' || content.type === 'text') && content.text) {
+            textContent += content.text;
+          }
+        }
+      }
+    }
+  }
+  
+  // If still no text, check if the response indicates incomplete status
+  if (!textContent && data.status === 'incomplete') {
+    textContent = `Response incomplete: ${data.incomplete_details?.reason || 'unknown reason'}`;
+  }
+  
+  // If still no text, provide a debug message
+  if (!textContent) {
+    textContent = `No text content in response. Status: ${data.status}, Model: ${data.model}`;
+    console.error('Warning: No text content found in GPT-5 response');
+  }
+
   return {
-    content: data.output_text || (data.output?.[0]?.content?.[0]?.text) || JSON.stringify(data, null, 2),
+    content: textContent,
     usage: data.usage
   };
 }
