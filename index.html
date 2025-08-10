@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orbitale - Eccentric Tetris</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: radial-gradient(circle at center, #0a0a1f, #000000);
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        #gameContainer {
+            position: relative;
+            width: 800px;
+            height: 800px;
+        }
+        
+        #gameCanvas {
+            border: 2px solid #00ffff;
+            box-shadow: 0 0 30px #00ffff;
+            background: radial-gradient(circle at center, rgba(0,255,255,0.05), transparent);
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            right: -200px;
+            width: 180px;
+            background: rgba(0,0,0,0.8);
+            padding: 20px;
+            border: 1px solid #00ffff;
+            border-radius: 10px;
+        }
+        
+        #score, #level, #energy {
+            margin: 10px 0;
+            font-size: 18px;
+            text-shadow: 0 0 5px currentColor;
+        }
+        
+        #score { color: #00ff00; }
+        #level { color: #ffff00; }
+        #energy { color: #ff00ff; }
+        
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #00ffff;
+        }
+        
+        .key {
+            display: inline-block;
+            background: rgba(0,255,255,0.2);
+            border: 1px solid #00ffff;
+            padding: 5px 10px;
+            margin: 5px;
+            border-radius: 5px;
+        }
+        
+        #phaseIndicator {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            background: rgba(0,0,0,0.8);
+            border: 2px solid #00ffff;
+            border-radius: 10px;
+            font-size: 20px;
+        }
+        
+        .phase-solid { color: #ffffff; text-shadow: 0 0 10px #ffffff; }
+        .phase-liquid { color: #00aaff; text-shadow: 0 0 10px #00aaff; }
+        .phase-ghost { color: #aa00ff; text-shadow: 0 0 10px #aa00ff; }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="800"></canvas>
+        
+        <div id="phaseIndicator" class="phase-solid">SOLID</div>
+        
+        <div id="ui">
+            <h2 style="color: #00ffff; margin-bottom: 20px;">ORBITALE</h2>
+            <div id="score">SCORE: 0</div>
+            <div id="level">LEVEL: 1</div>
+            <div id="energy">ENERGY: 0%</div>
+        </div>
+        
+        <div id="controls">
+            <div><span class="key">←/→</span> Rotate Arena</div>
+            <div><span class="key">Q/E</span> Rotate Piece</div>
+            <div><span class="key">↓</span> Boost</div>
+            <div><span class="key">1/2/3</span> Phase</div>
+            <div><span class="key">SPACE</span> Drop</div>
+        </div>
+    </div>
+    
+    <script src="orbitale.js"></script>
+</body>
+</html>
