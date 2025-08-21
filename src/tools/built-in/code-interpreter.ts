@@ -9,13 +9,9 @@ interface CodeInterpreterArgs {
 
 interface OpenAIResponsesAPIRequest {
   model: string;
-  input: Array<{
-    role: 'user';
-    content: string;
-  }>;
+  input: string;
   tools: Array<{
     type: 'code_interpreter';
-    container?: Record<string, any>;
   }>;
   max_output_tokens?: number;
   stream?: boolean;
@@ -86,18 +82,10 @@ export class CodeInterpreterTool extends Tool {
       // Prepare request for OpenAI Responses API with code interpreter
       const requestBody: OpenAIResponsesAPIRequest = {
         model: 'gpt-4o', // Use GPT-4o for best code interpreter support
-        input: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
+        input: prompt,
         tools: [
           {
-            type: 'code_interpreter',
-            container: {
-              type: 'auto'
-            }
+            type: 'code_interpreter'
           }
         ],
         max_output_tokens: 4000,
@@ -139,7 +127,7 @@ export class CodeInterpreterTool extends Tool {
 
       const data = await response.json() as any;
       console.error('OpenAI Responses API response received');
-      console.error('Full response data:', JSON.stringify(data, null, 2));
+      console.error('Full response structure:', JSON.stringify(data, null, 2));
 
       // Extract code execution results
       let executionOutput = '';
@@ -151,38 +139,33 @@ export class CodeInterpreterTool extends Tool {
         for (const item of data.output) {
           console.error('Found output item:', { type: item.type, id: item.id, status: item.status });
           
-          // Check various possible code interpreter response types
-          if (item.type === 'code_interpreter_call' || 
-              item.type === 'message' && item.content && Array.isArray(item.content)) {
+          // First check if this is the tool call confirmation
+          if (item.type === 'code_interpreter_call') {
+            console.error('Found code_interpreter_call in response:', item);
+            hasCodeExecution = true;
+          }
+          
+          // The actual results are in message objects with role "assistant"
+          if (item.type === 'message' && item.role === 'assistant' && item.content && Array.isArray(item.content)) {
+            console.error('Found assistant message with content');
             
-            if (item.type === 'code_interpreter_call') {
-              hasCodeExecution = true;
-              console.error('Found code_interpreter_call in response');
+            for (const contentItem of item.content) {
+              if (contentItem.type === 'output_text' && contentItem.text) {
+                console.error('Found output_text with actual execution results');
+                executionOutput += contentItem.text + '\n';
+                hasCodeExecution = true;
+              }
               
-              if (item.output) {
-                executionOutput += item.output;
-              }
-              if (item.error) {
-                executionError += item.error;
-              }
-            }
-            
-            // Also check message content for code execution results
-            if (item.type === 'message' && item.content) {
-              for (const contentItem of item.content) {
-                console.error('Content item:', { type: contentItem.type });
-                if (contentItem.type === 'code_interpreter_call' || 
-                    contentItem.type === 'code_execution' ||
-                    contentItem.code || contentItem.output) {
-                  hasCodeExecution = true;
-                  console.error('Found code execution in message content');
-                  
-                  if (contentItem.output) {
-                    executionOutput += contentItem.output;
-                  }
-                  if (contentItem.error) {
-                    executionError += contentItem.error;
-                  }
+              // Also check for specific code execution content types
+              if (contentItem.type === 'code_execution' || contentItem.type === 'code_interpreter_call') {
+                console.error('Found code execution content item');
+                hasCodeExecution = true;
+                
+                if (contentItem.output) {
+                  executionOutput += contentItem.output + '\n';
+                }
+                if (contentItem.error) {
+                  executionError += contentItem.error + '\n';
                 }
               }
             }
@@ -196,61 +179,10 @@ export class CodeInterpreterTool extends Tool {
         finalOutput = data.output_text;
       }
 
-      // Additional parsing for different response formats
-      if (!hasCodeExecution && data.output && Array.isArray(data.output)) {
-        // Check for any output that might contain execution results in text form
-        for (const item of data.output) {
-          if (item.content && Array.isArray(item.content)) {
-            for (const contentItem of item.content) {
-              if (contentItem.text) {
-                // Look for patterns that indicate code execution output
-                const text = contentItem.text;
-                if (text.includes('```') || 
-                    text.includes('print(') || 
-                    text.includes('output:') ||
-                    text.includes('result:') ||
-                    /\d+\s*\+\s*\d+\s*=\s*\d+/.test(text) ||
-                    /^[\d\.\-\+\*\/\s=]+$/.test(text.trim())) {
-                  console.error('Found potential execution output in text content');
-                  executionOutput += text + '\n';
-                  hasCodeExecution = true;
-                }
-              }
-            }
-          }
-          
-          // Also check if the item itself has output-like properties
-          if (item.output) {
-            console.error('Found output property in item');
-            executionOutput += item.output + '\n';
-            hasCodeExecution = true;
-          }
-          
-          if (item.result) {
-            console.error('Found result property in item');
-            executionOutput += item.result + '\n';
-            hasCodeExecution = true;
-          }
-        }
-      }
-
-      // Final fallback: if we still don't have execution output, check finalOutput for execution patterns
-      if (!hasCodeExecution && finalOutput) {
-        const outputLines = finalOutput.split('\n');
-        for (const line of outputLines) {
-          // Look for lines that look like execution output
-          if (line.includes('>>>') || 
-              line.includes('In [') ||
-              line.includes('Out[') ||
-              /^\d+$/.test(line.trim()) ||
-              /^[\d\.\-\+\*\/\s=]+$/.test(line.trim()) ||
-              line.includes('Testing') ||
-              line.includes('=') && /\d/.test(line)) {
-            console.error('Found potential execution output in final output');
-            executionOutput += line + '\n';
-            hasCodeExecution = true;
-          }
-        }
+      // Fallback: check finalOutput if we don't have specific execution results
+      if (!executionOutput && finalOutput) {
+        // The model's analysis might contain the execution results
+        executionOutput = finalOutput;
       }
 
       // Format the result
