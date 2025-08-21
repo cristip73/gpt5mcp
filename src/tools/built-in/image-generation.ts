@@ -1,5 +1,7 @@
 import { Tool, ToolExecutionContext, ToolResult } from '../base.js';
 import fetch from 'node-fetch';
+import { promises as fs } from 'fs';
+import path from 'path';
 
 interface ImageGenerationArgs {
   prompt: string;
@@ -20,7 +22,7 @@ interface ImageGenerationResponse {
 
 export class ImageGenerationTool extends Tool {
   name = 'image_generation';
-  description = 'Generate images using OpenAI DALL-E 3 or GPT-4o image generation models';
+  description = 'Generate images using OpenAI DALL-E 3 or GPT-4o image generation models. Images are automatically saved to _IMAGES folder for permanent storage.';
   type = 'function' as const;
 
   parameters = {
@@ -106,6 +108,36 @@ export class ImageGenerationTool extends Tool {
     return { isValid: true };
   }
 
+  private async downloadAndSaveImage(imageUrl: string, prompt: string): Promise<string> {
+    try {
+      // Create _IMAGES directory if it doesn't exist
+      const imagesDir = path.join(process.cwd(), '_IMAGES');
+      await fs.mkdir(imagesDir, { recursive: true });
+
+      // Generate filename from prompt (sanitized) and timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const sanitizedPrompt = prompt.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_').slice(0, 50);
+      const filename = `${sanitizedPrompt}_${timestamp}.png`;
+      const filepath = path.join(imagesDir, filename);
+
+      // Download image
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to download image: ${response.statusText}`);
+      }
+
+      // Save to file
+      const buffer = await response.buffer();
+      await fs.writeFile(filepath, buffer);
+
+      console.error(`Image saved locally: ${filepath}`);
+      return filepath;
+    } catch (error) {
+      console.error('Failed to save image locally:', error);
+      throw error;
+    }
+  }
+
   async execute(args: ImageGenerationArgs, context: ToolExecutionContext): Promise<ToolResult> {
     try {
       const { prompt, model = 'dall-e-3', size = '1024x1024', quality = 'standard', style, n = 1 } = args;
@@ -178,8 +210,17 @@ export class ImageGenerationTool extends Tool {
         throw new Error('No images were generated');
       }
 
-      // Format response
+      // Format response and save locally
       const image = data.data[0];
+      
+      // Download and save image locally
+      let localPath: string | null = null;
+      try {
+        localPath = await this.downloadAndSaveImage(image.url, prompt);
+      } catch (error) {
+        console.error('Failed to save image locally, continuing with URL only:', error);
+      }
+
       let output = `✅ Image generated successfully!\n\n`;
       output += `🎨 **Model**: ${model}\n`;
       output += `📐 **Size**: ${size}\n`;
@@ -187,13 +228,23 @@ export class ImageGenerationTool extends Tool {
       if (style && model === 'dall-e-3') {
         output += `🎭 **Style**: ${style}\n`;
       }
-      output += `\n🔗 **Image URL**: ${image.url}\n`;
+      
+      if (localPath) {
+        output += `\n💾 **Saved locally**: ${localPath}\n`;
+        output += `🔗 **Original URL**: ${image.url}\n`;
+      } else {
+        output += `\n🔗 **Image URL**: ${image.url}\n`;
+      }
       
       if (image.revised_prompt) {
         output += `\n📝 **Revised Prompt**: ${image.revised_prompt}\n`;
       }
 
-      output += `\n⚠️  **Note**: Image URLs are temporary and typically expire after 1 hour.`;
+      if (localPath) {
+        output += `\n📁 **Note**: Image saved in _IMAGES folder for permanent storage. URL expires after 1 hour.`;
+      } else {
+        output += `\n⚠️  **Note**: Image URLs are temporary and typically expire after 1 hour.`;
+      }
 
       return {
         tool_call_id: `image_gen_${Date.now()}`,
@@ -205,6 +256,7 @@ export class ImageGenerationTool extends Tool {
           quality,
           style: style || null,
           image_url: image.url,
+          local_path: localPath,
           revised_prompt: image.revised_prompt || null,
           created_at: new Date(data.created * 1000).toISOString()
         }
