@@ -11,7 +11,7 @@ interface OpenAIWebSearchRequest {
   model: string;
   input: string;
   tools: Array<{
-    type: 'web_search_preview';
+    type: 'web_search' | 'web_search_preview';
   }>;
   max_output_tokens?: number;
   stream?: boolean;
@@ -68,7 +68,7 @@ export class WebSearchTool extends Tool {
         input: searchPrompt,
         tools: [
           {
-            type: 'web_search_preview'
+            type: 'web_search'
           }
         ],
         max_output_tokens: 4000,
@@ -110,23 +110,49 @@ export class WebSearchTool extends Tool {
 
       const data = await response.json() as any;
       console.error('OpenAI Web Search API response received');
+      console.error('Full response structure:', JSON.stringify(data, null, 2));
 
       // Extract web search results
       let searchResults = '';
       let hasWebSearchResults = false;
+      let searchActions = [];
+      let citations = [];
 
       // Parse the response for web search results
       if (data.output && Array.isArray(data.output)) {
         for (const item of data.output) {
+          console.error('Found output item:', { type: item.type, id: item.id, status: item.status });
+          
+          // First check if this is the tool call confirmation
           if (item.type === 'web_search_call') {
+            console.error('Found web_search_call in response:', item);
             hasWebSearchResults = true;
-            console.error('Found web search results in response');
+          }
+          
+          // The actual results are in message objects with role "assistant"
+          if (item.type === 'message' && item.role === 'assistant' && item.content && Array.isArray(item.content)) {
+            console.error('Found assistant message with content');
             
-            if (item.results) {
-              searchResults += item.results;
-            }
-            if (item.output) {
-              searchResults += item.output;
+            for (const contentItem of item.content) {
+              if (contentItem.type === 'output_text' && contentItem.text) {
+                console.error('Found output_text with actual content');
+                searchResults += contentItem.text + '\n';
+                hasWebSearchResults = true;
+                
+                // Extract citations/annotations
+                if (contentItem.annotations && Array.isArray(contentItem.annotations)) {
+                  for (const annotation of contentItem.annotations) {
+                    if (annotation.type === 'url_citation' && annotation.url && annotation.title) {
+                      citations.push({
+                        url: annotation.url,
+                        title: annotation.title,
+                        start_index: annotation.start_index,
+                        end_index: annotation.end_index
+                      });
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -155,7 +181,16 @@ export class WebSearchTool extends Tool {
           result += `**Summary**:\n${finalOutput}\n`;
         }
         
-        result += `\n✅ **Searched using OpenAI's built-in web search**`;
+        // Add citations if available
+        if (citations.length > 0) {
+          result += `**Sources**:\n`;
+          citations.forEach((citation, index) => {
+            result += `${index + 1}. [${citation.title}](${citation.url})\n`;
+          });
+          result += '\n';
+        }
+        
+        result += `✅ **Searched using OpenAI's built-in web search**`;
       } else {
         result = `❌ **No Web Search Results**\n\nThe web search tool did not return any results. This may indicate:\n- No relevant results found for the query\n- API limitations\n- Query too specific or too broad\n\nPlease try rephrasing your query or make it more specific.`;
       }
