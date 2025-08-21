@@ -190,10 +190,67 @@ export class CodeInterpreterTool extends Tool {
         }
       }
 
-      // Also check the main output text for code execution results
+      // Also check the main output text and content for code execution results
       let finalOutput = '';
       if (data.output_text) {
         finalOutput = data.output_text;
+      }
+
+      // Additional parsing for different response formats
+      if (!hasCodeExecution && data.output && Array.isArray(data.output)) {
+        // Check for any output that might contain execution results in text form
+        for (const item of data.output) {
+          if (item.content && Array.isArray(item.content)) {
+            for (const contentItem of item.content) {
+              if (contentItem.text) {
+                // Look for patterns that indicate code execution output
+                const text = contentItem.text;
+                if (text.includes('```') || 
+                    text.includes('print(') || 
+                    text.includes('output:') ||
+                    text.includes('result:') ||
+                    /\d+\s*\+\s*\d+\s*=\s*\d+/.test(text) ||
+                    /^[\d\.\-\+\*\/\s=]+$/.test(text.trim())) {
+                  console.error('Found potential execution output in text content');
+                  executionOutput += text + '\n';
+                  hasCodeExecution = true;
+                }
+              }
+            }
+          }
+          
+          // Also check if the item itself has output-like properties
+          if (item.output) {
+            console.error('Found output property in item');
+            executionOutput += item.output + '\n';
+            hasCodeExecution = true;
+          }
+          
+          if (item.result) {
+            console.error('Found result property in item');
+            executionOutput += item.result + '\n';
+            hasCodeExecution = true;
+          }
+        }
+      }
+
+      // Final fallback: if we still don't have execution output, check finalOutput for execution patterns
+      if (!hasCodeExecution && finalOutput) {
+        const outputLines = finalOutput.split('\n');
+        for (const line of outputLines) {
+          // Look for lines that look like execution output
+          if (line.includes('>>>') || 
+              line.includes('In [') ||
+              line.includes('Out[') ||
+              /^\d+$/.test(line.trim()) ||
+              /^[\d\.\-\+\*\/\s=]+$/.test(line.trim()) ||
+              line.includes('Testing') ||
+              line.includes('=') && /\d/.test(line)) {
+            console.error('Found potential execution output in final output');
+            executionOutput += line + '\n';
+            hasCodeExecution = true;
+          }
+        }
       }
 
       // Format the result
