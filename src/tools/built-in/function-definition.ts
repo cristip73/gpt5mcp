@@ -188,8 +188,12 @@ export class ExecuteCustomFunctionTool extends Tool {
       console.error(`Executing custom function: ${function_name}`);
 
       // Create and execute the function
-      const func = new Function('args', functionDef.implementation);
-      const result = func(funcArgs);
+      // Use eval to execute the complete function declaration then call it
+      const functionCode = `
+        ${functionDef.implementation}
+        ${function_name}(${JSON.stringify(funcArgs)});
+      `;
+      const result = eval(functionCode);
 
       return {
         tool_call_id: `execute_function_${Date.now()}`,

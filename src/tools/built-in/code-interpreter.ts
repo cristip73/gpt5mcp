@@ -139,24 +139,52 @@ export class CodeInterpreterTool extends Tool {
 
       const data = await response.json() as any;
       console.error('OpenAI Responses API response received');
+      console.error('Full response data:', JSON.stringify(data, null, 2));
 
       // Extract code execution results
       let executionOutput = '';
       let executionError = '';
       let hasCodeExecution = false;
 
-      // Parse the response for code interpreter output
+      // Parse the response for code interpreter output  
       if (data.output && Array.isArray(data.output)) {
         for (const item of data.output) {
-          if (item.type === 'code_interpreter_call') {
-            hasCodeExecution = true;
-            console.error('Found code interpreter execution in response');
+          console.error('Found output item:', { type: item.type, id: item.id, status: item.status });
+          
+          // Check various possible code interpreter response types
+          if (item.type === 'code_interpreter_call' || 
+              item.type === 'message' && item.content && Array.isArray(item.content)) {
             
-            if (item.output) {
-              executionOutput += item.output;
+            if (item.type === 'code_interpreter_call') {
+              hasCodeExecution = true;
+              console.error('Found code_interpreter_call in response');
+              
+              if (item.output) {
+                executionOutput += item.output;
+              }
+              if (item.error) {
+                executionError += item.error;
+              }
             }
-            if (item.error) {
-              executionError += item.error;
+            
+            // Also check message content for code execution results
+            if (item.type === 'message' && item.content) {
+              for (const contentItem of item.content) {
+                console.error('Content item:', { type: contentItem.type });
+                if (contentItem.type === 'code_interpreter_call' || 
+                    contentItem.type === 'code_execution' ||
+                    contentItem.code || contentItem.output) {
+                  hasCodeExecution = true;
+                  console.error('Found code execution in message content');
+                  
+                  if (contentItem.output) {
+                    executionOutput += contentItem.output;
+                  }
+                  if (contentItem.error) {
+                    executionError += contentItem.error;
+                  }
+                }
+              }
             }
           }
         }
