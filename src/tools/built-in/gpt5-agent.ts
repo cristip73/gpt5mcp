@@ -93,12 +93,12 @@ export class GPT5AgentTool extends Tool {
       enable_web_search: {
         type: 'boolean',
         description: 'Enable web search capability',
-        default: true
+        default: false
       },
       enable_code_interpreter: {
         type: 'boolean',
         description: 'Enable code interpreter capability',
-        default: true
+        default: false
       },
       enable_file_operations: {
         type: 'boolean',
@@ -139,19 +139,19 @@ export class GPT5AgentTool extends Tool {
     const tools = [];
     
     // Add built-in tools based on configuration
-    if (args.enable_web_search !== false) {
+    if (args.enable_web_search === true) {
       tools.push({ type: 'web_search_preview' });
     }
     
-    if (args.enable_code_interpreter !== false) {
+    if (args.enable_code_interpreter === true) {
       tools.push({
         type: 'code_interpreter',
         container: { type: 'auto' }
       });
     }
     
-    // Add function tools from registry
-    if (args.enable_file_operations) {
+    // Add function tools from registry only if explicitly enabled
+    if (args.enable_file_operations === true) {
       const fileOpsTool = globalToolRegistry.getTool('file_operations');
       if (fileOpsTool) {
         tools.push({
@@ -160,22 +160,6 @@ export class GPT5AgentTool extends Tool {
             name: fileOpsTool.name,
             description: fileOpsTool.description,
             parameters: fileOpsTool.parameters
-          }
-        });
-      }
-    }
-    
-    // Add custom function tools
-    const customTools = ['image_generation', 'define_function', 'list_functions', 'execute_function'];
-    for (const toolName of customTools) {
-      const tool = globalToolRegistry.getTool(toolName);
-      if (tool && tool.type === 'function') {
-        tools.push({
-          type: 'function',
-          function: {
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.parameters
           }
         });
       }
@@ -327,6 +311,9 @@ export class GPT5AgentTool extends Tool {
         const toolCalls = [];
         let hasMessage = false;
         
+        // Log the output structure for debugging
+        console.error('Response output structure:', JSON.stringify(data.output?.slice(0, 2), null, 2));
+        
         if (data.output && Array.isArray(data.output)) {
           for (const item of data.output) {
             // Check for tool calls
@@ -338,15 +325,23 @@ export class GPT5AgentTool extends Tool {
             // Check for messages (preambles or final)
             if (item.type === 'message' && item.role === 'assistant') {
               hasMessage = true;
-              if (item.content && Array.isArray(item.content)) {
-                for (const content of item.content) {
-                  if (content.type === 'text' && content.text) {
-                    // This could be a preamble or final message
-                    if (show_preambles && toolCalls.length > 0) {
-                      statusUpdates.push(content.text);
-                      console.error(`[Status] ${content.text}`);
-                    } else {
-                      finalOutput += content.text + '\n';
+              if (item.content) {
+                // Handle both string and array content
+                if (typeof item.content === 'string') {
+                  finalOutput += item.content + '\n';
+                  console.error(`Found message content (string): ${item.content.substring(0, 100)}`);
+                } else if (Array.isArray(item.content)) {
+                  for (const content of item.content) {
+                    if (content.type === 'text' && content.text) {
+                      // This could be a preamble or final message
+                      if (show_preambles && toolCalls.length > 0) {
+                        statusUpdates.push(content.text);
+                        console.error(`[Status] ${content.text}`);
+                      } else {
+                        finalOutput += content.text + '\n';
+                      }
+                    } else if (typeof content === 'string') {
+                      finalOutput += content + '\n';
                     }
                   }
                 }
@@ -355,8 +350,9 @@ export class GPT5AgentTool extends Tool {
           }
         }
         
-        // Also check output_text for final output
+        // Also check output_text for final output (primary source)
         if (data.output_text) {
+          console.error(`Found output_text: ${data.output_text.substring(0, 100)}`);
           finalOutput = data.output_text;
           hasMessage = true;
         }
