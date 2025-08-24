@@ -133,8 +133,22 @@ async function main() {
               enable_tools: args.enable_tools
             });
             
-            // Return enhanced response with tool information
-            let responseText = JSON.stringify(result.raw_response, null, 2);
+            // Check if response_id exists, log if missing
+            if (!result.response_id) {
+              console.warn("Warning: No response_id in result", result);
+            }
+            
+            // Return enhanced response with response_id at the top
+            let responseText = '';
+            
+            // Add response_id first for easy access
+            if (result.response_id) {
+              responseText += `Response ID: ${result.response_id}\n`;
+              responseText += `─────────────────────────────────────────\n\n`;
+            }
+            
+            // Add the full response
+            responseText += JSON.stringify(result.raw_response, null, 2);
             
             // Add tool execution summary if tools were used
             if (result.tool_calls && result.tool_calls.length > 0) {
@@ -151,7 +165,8 @@ async function main() {
               content: [{
                 type: "text",
                 text: responseText
-              }]
+              }],
+              response_id: result.response_id  // Include in return object for programmatic access
             };
           }
           
