@@ -184,6 +184,44 @@ export class GPT5AgentTool extends Tool {
     return prompt;
   }
 
+  private extractOutputText(resp: any): string | null {
+    // 1) SDK convenience (present only if you're using official SDK objects)
+    if (typeof resp?.output_text === "string" && resp.output_text.trim()) {
+      return resp.output_text;
+    }
+
+    // 2) Raw Responses API shape - THIS IS WHAT WE NEED
+    if (Array.isArray(resp?.output)) {
+      const chunks: string[] = [];
+      for (const item of resp.output) {
+        if (item?.type === "message" && (item.role === "assistant" || !item.role)) {
+          const parts = Array.isArray(item.content) ? item.content : [];
+          for (const part of parts) {
+            // canonical text location
+            if (part?.type === "output_text" && typeof part.text === "string") {
+              chunks.push(part.text);
+            }
+            // (defensive) handle any unexpected plain-text parts
+            if (part?.type === "text" && typeof part.text === "string") {
+              chunks.push(part.text);
+            }
+          }
+        }
+      }
+      const text = chunks.join("");
+      if (text.trim()) return text;
+    }
+
+    // 3) Fallback for Chat Completions responses (if someone swaps endpoints)
+    if (Array.isArray(resp?.choices) && resp.choices.length) {
+      const ch = resp.choices[0];
+      if (ch?.message?.content) return ch.message.content;
+      if (typeof ch?.text === "string") return ch.text;
+    }
+
+    return null;
+  }
+
   async execute(args: GPT5AgentArgs, context: ToolExecutionContext): Promise<ToolResult> {
     try {
       const startTime = Date.now();
@@ -198,12 +236,8 @@ export class GPT5AgentTool extends Tool {
         context: taskContext
       } = args;
       
-      console.error(`GPT-5 Agent: Starting task "${task}" with ${model}`);
-      console.error(`Configuration: reasoning=${reasoning_effort}, verbosity=${verbosity}, max_iterations=${max_iterations}`);
-      
       // Build tools array
       const tools = this.buildToolsArray(args);
-      console.error(`Enabled tools: ${tools.length} tools available`);
       
       // Build initial input
       const systemPrompt = this.buildSystemPrompt(args);
@@ -231,15 +265,13 @@ export class GPT5AgentTool extends Tool {
         stream: false
       };
       
-      console.error('Making initial Responses API request');
-      
       // Track execution
       let iterations = 0;
       let totalInputTokens = 0;
       let totalOutputTokens = 0;
       let totalReasoningTokens = 0;
-      const toolCallRecords = [];
-      const statusUpdates = [];
+      const toolCallRecords: Array<{tool: string; arguments: any; result: any; status: string}> = [];
+      const statusUpdates: string[] = [];
       let previousResponseId: string | undefined;
       let finalOutput = '';
       let reasoningSummary = '';
@@ -247,7 +279,6 @@ export class GPT5AgentTool extends Tool {
       // Agent loop
       while (iterations < max_iterations) {
         iterations++;
-        console.error(`Agent iteration ${iterations}/${max_iterations}`);
         
         // Prepare request
         const request: ResponsesAPIRequest = iterations === 1 ? initialRequest : {
@@ -289,8 +320,7 @@ export class GPT5AgentTool extends Tool {
           throw new Error(errorMessage);
         }
         
-        const data = await response.json() as ResponsesAPIResponse;
-        console.error(`Response received with ${data.output?.length || 0} output items`);
+        const data = await response.json() as any;
         
         // Store response ID for next iteration
         previousResponseId = data.id;
@@ -307,72 +337,40 @@ export class GPT5AgentTool extends Tool {
           reasoningSummary = data.reasoning_summary;
         }
         
-        // Process output items
+        // Process output items for tool calls
         const toolCalls = [];
         let hasMessage = false;
         
-        // Log the output structure for debugging
-        console.error('Response output structure:', JSON.stringify(data.output?.slice(0, 2), null, 2));
-        
+        // Check for tool calls in output array
         if (data.output && Array.isArray(data.output)) {
           for (const item of data.output) {
             // Check for tool calls
             if (item.type === 'function_call') {
-              console.error(`Found function call: ${item.name}`);
               toolCalls.push(item);
-            }
-            
-            // Check for messages (preambles or final)
-            if (item.type === 'message' && item.role === 'assistant') {
-              hasMessage = true;
-              if (item.content) {
-                // Handle both string and array content
-                if (typeof item.content === 'string') {
-                  finalOutput += item.content + '\n';
-                  console.error(`Found message content (string): ${item.content.substring(0, 100)}`);
-                } else if (Array.isArray(item.content)) {
-                  for (const content of item.content) {
-                    if (content.type === 'text' && content.text) {
-                      // This could be a preamble or final message
-                      if (show_preambles && toolCalls.length > 0) {
-                        statusUpdates.push(content.text);
-                        console.error(`[Status] ${content.text}`);
-                      } else {
-                        finalOutput += content.text + '\n';
-                      }
-                    } else if (typeof content === 'string') {
-                      finalOutput += content + '\n';
-                    }
-                  }
-                }
-              }
             }
           }
         }
         
-        // Also check output_text for final output (primary source)
-        if (data.output_text) {
-          console.error(`Found output_text: ${data.output_text.substring(0, 100)}`);
-          finalOutput = data.output_text;
+        // Extract the actual text output using our helper function
+        const extractedText = this.extractOutputText(data);
+        if (extractedText) {
+          finalOutput = extractedText;
           hasMessage = true;
         }
         
         // If no tool calls and has message, we're done
         if (toolCalls.length === 0 && hasMessage) {
-          console.error('Agent completed - no more tool calls');
           break;
         }
         
         // If no tool calls and no message, something went wrong
         if (toolCalls.length === 0 && !hasMessage) {
-          console.error('Warning: No tool calls and no message in response');
           break;
         }
         
         // Execute tool calls
         const toolOutputs = [];
         for (const call of toolCalls) {
-          console.error(`Executing tool: ${call.name}`);
           
           // Parse arguments
           let toolArgs = {};
@@ -414,7 +412,6 @@ export class GPT5AgentTool extends Tool {
         if (toolOutputs.length > 0 && iterations < max_iterations) {
           request.input = toolOutputs;
         } else if (toolOutputs.length > 0) {
-          console.error('Reached max iterations with pending tool calls');
           break;
         }
       }
@@ -434,8 +431,11 @@ export class GPT5AgentTool extends Tool {
         result += '\n';
       }
       
-      if (finalOutput) {
+      if (finalOutput && finalOutput.trim()) {
         result += `### 📝 Result\n${finalOutput.trim()}\n\n`;
+      } else {
+        // Temporary: show a message that agent completed but output wasn't captured
+        result += `### ⚠️ Note\nAgent completed the task but the response wasn't captured properly.\n\n`;
       }
       
       if (reasoningSummary && show_reasoning_summary) {
