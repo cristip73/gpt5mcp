@@ -8,6 +8,7 @@ import {
 } from './built-in/function-definition.js';
 import { CodeInterpreterTool } from './built-in/code-interpreter.js';
 import { ImageGenerationTool } from './built-in/image-generation.js';
+import { GPT5AgentTool } from './built-in/gpt5-agent.js';
 import { globalToolRegistry } from './registry.js';
 
 // Re-export for external use
@@ -20,6 +21,7 @@ export {
 } from './built-in/function-definition.js';
 export { CodeInterpreterTool } from './built-in/code-interpreter.js';
 export { ImageGenerationTool } from './built-in/image-generation.js';
+export { GPT5AgentTool } from './built-in/gpt5-agent.js';
 
 // Export registry and base classes
 export { globalToolRegistry, ToolRegistry } from './registry.js';
@@ -35,6 +37,7 @@ export function registerAllBuiltInTools() {
   globalToolRegistry.register(new ExecuteCustomFunctionTool());
   globalToolRegistry.register(new CodeInterpreterTool());
   globalToolRegistry.register(new ImageGenerationTool());
+  globalToolRegistry.register(new GPT5AgentTool());
 
   console.error(`Registered ${globalToolRegistry.listAvailableTools().length} built-in tools`);
 }
