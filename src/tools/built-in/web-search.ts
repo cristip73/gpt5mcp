@@ -62,28 +62,29 @@ export class WebSearchTool extends Tool {
         searchPrompt += ` (provide up to ${max_results} relevant results)`;
       }
 
-      // Prepare request for OpenAI Chat Completions API with search model
-      const requestBody = {
-        model: 'gpt-4o', // Try standard model instead of search-specific
-        messages: [
+      // Prepare request for OpenAI Responses API with web search tool
+      const requestBody: OpenAIWebSearchRequest = {
+        model: 'gpt-4o', // Using GPT-4o with Responses API
+        input: searchPrompt,
+        tools: [
           {
-            role: 'user',
-            content: searchPrompt
+            type: 'web_search_preview' // Use web_search_preview tool for actual web searches
           }
         ],
-        max_tokens: 4000,
+        max_output_tokens: 4000,
         stream: false
       };
 
-      console.error('Making OpenAI Chat Completions API request for web search:', {
+      console.error('Making OpenAI Responses API request for web search:', {
         model: requestBody.model,
         query,
         max_results,
-        time_range
+        time_range,
+        tool: 'web_search_preview'
       });
 
-      // Make API request to OpenAI's Chat Completions with search model
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      // Make API request to OpenAI's Responses API with web search tool
+      const response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -117,78 +118,106 @@ export class WebSearchTool extends Tool {
       let searchActions: any[] = [];
       let citations: Array<{url: string, title: string, start_index?: number, end_index?: number}> = [];
 
-      // Parse Chat Completions response
-      if (data.choices && data.choices.length > 0) {
-        const choice = data.choices[0];
-        if (choice.message && choice.message.content) {
-          searchResults = choice.message.content;
-          hasWebSearchResults = true;
+      // Parse Responses API response with web search results
+      // The response structure includes output array with web_search_call and message objects
+      if (data.output && Array.isArray(data.output)) {
+        console.error('Found output array with', data.output.length, 'items');
+        
+        for (const item of data.output) {
+          console.error('Processing output item:', { type: item.type, id: item.id, status: item.status });
           
-          // Check if there are any citations in the response
-          // The search model may include citations in the content
-          const citationMatches = searchResults.match(/\[(\d+)\]\s*([^\n]+)/g);
-          if (citationMatches) {
-            console.error('Found citations in content');
-            citationMatches.forEach((match, index) => {
-              citations.push({
-                url: '', // URLs might be at the end of content
-                title: match,
-                start_index: 0,
-                end_index: 0
-              });
-            });
+          // Check for web_search_call confirmation
+          if (item.type === 'web_search_call') {
+            console.error('Web search was performed:', item);
+            hasWebSearchResults = true;
+          }
+          
+          // Extract actual search results from message objects
+          if (item.type === 'message' && item.role === 'assistant') {
+            // Check for content array with actual results
+            if (item.content && Array.isArray(item.content)) {
+              for (const contentItem of item.content) {
+                // Look for output_text with search results
+                if (contentItem.type === 'output_text' && contentItem.text) {
+                  console.error('Found search results text');
+                  searchResults += contentItem.text + '\n';
+                  hasWebSearchResults = true;
+                  
+                  // Extract URL citations from annotations
+                  if (contentItem.annotations && Array.isArray(contentItem.annotations)) {
+                    for (const annotation of contentItem.annotations) {
+                      if (annotation.type === 'url_citation') {
+                        console.error('Found URL citation:', annotation.title, annotation.url);
+                        citations.push({
+                          url: annotation.url || '',
+                          title: annotation.title || '',
+                          start_index: annotation.start_index,
+                          end_index: annotation.end_index
+                        });
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
-
-      // The search results are directly in the message content
-      let finalOutput = searchResults;
+      
+      // Also check output_text field for synthesized results
+      let finalOutput = data.output_text || searchResults;
 
       // Format the result
       let result = '';
       
       if (hasWebSearchResults || finalOutput) {
-        result = `🔍 **Web Search Results** (OpenAI Built-in Search)\n\n`;
-        result += `**Query**: ${query}\n`;
-        result += `**Max Results**: ${max_results}\n`;
+        result = `🔍 **Web Search Results** (Real-time Internet Search)\n\n`;
+        result += `**Query**: "${query}"\n`;
+        if (citations.length > 0) {
+          result += `**Sources Found**: ${citations.length} web sources\n`;
+        }
         result += `**Time Range**: ${time_range}\n\n`;
         
-        if (searchResults) {
-          result += `**Search Results**:\n${searchResults.trim()}\n\n`;
+        // Show the synthesized results
+        if (finalOutput) {
+          result += `**Results**:\n${finalOutput.trim()}\n\n`;
+        } else if (searchResults) {
+          result += `**Results**:\n${searchResults.trim()}\n\n`;
         }
         
-        if (finalOutput && finalOutput !== searchResults) {
-          result += `**Summary**:\n${finalOutput}\n`;
-        }
-        
-        // Add citations if available
+        // Add source citations with proper URLs
         if (citations.length > 0) {
-          result += `**Sources**:\n`;
+          result += `**📌 Sources**:\n`;
           citations.forEach((citation, index) => {
-            result += `${index + 1}. [${citation.title}](${citation.url})\n`;
+            if (citation.url && citation.url.startsWith('http')) {
+              result += `${index + 1}. [${citation.title || 'Source'}](${citation.url})\n`;
+            } else if (citation.title) {
+              result += `${index + 1}. ${citation.title}\n`;
+            }
           });
           result += '\n';
         }
         
-        result += `✅ **Searched using OpenAI's built-in web search**`;
+        result += `✅ **Live web search performed with up-to-date results**`;
       } else {
         result = `❌ **No Web Search Results**\n\nThe web search tool did not return any results. This may indicate:\n- No relevant results found for the query\n- API limitations\n- Query too specific or too broad\n\nPlease try rephrasing your query or make it more specific.`;
       }
 
-      // Check if the search models are actually working
-      if (!data.choices || data.choices.length === 0) {
+      // Check if web search was successful
+      if (!hasWebSearchResults && (!data.output || data.output.length === 0)) {
+        console.error('No web search results found in response');
         return {
           tool_call_id: `web_search_${Date.now()}`,
-          output: `❌ **Web Search Error**: No choices returned from API. The search model (${requestBody.model}) may not be available or working properly.`,
+          output: `❌ **Web Search Error**: No search results returned from API. The web search tool may not be available or the query didn't return results.`,
           status: 'error',
           metadata: {
             query,
             max_results,
             time_range,
-            search_engine: 'OpenAI Search Model',
+            search_engine: 'OpenAI Web Search',
             has_results: false,
-            model_used: 'gpt-4o',
-            error: 'no_choices'
+            model_used: requestBody.model,
+            error: 'no_results'
           }
         };
       }
@@ -201,9 +230,10 @@ export class WebSearchTool extends Tool {
           query,
           max_results,
           time_range,
-          search_engine: 'OpenAI Search Model',
+          search_engine: 'OpenAI Web Search (Responses API)',
           has_results: hasWebSearchResults,
-          model_used: 'gpt-4o'
+          model_used: requestBody.model,
+          tool_used: 'web_search_preview'
         }
       };
 
