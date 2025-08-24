@@ -12,6 +12,9 @@ interface OpenAIResponsesAPIRequest {
   input: string;
   tools: Array<{
     type: 'code_interpreter';
+    container?: {
+      type: string;
+    };
   }>;
   max_output_tokens?: number;
   stream?: boolean;
@@ -85,7 +88,10 @@ export class CodeInterpreterTool extends Tool {
         input: prompt,
         tools: [
           {
-            type: 'code_interpreter'
+            type: 'code_interpreter',
+            container: {
+              type: 'auto'
+            }
           }
         ],
         max_output_tokens: 4000,
