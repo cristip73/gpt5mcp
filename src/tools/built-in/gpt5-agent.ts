@@ -427,8 +427,20 @@ export class GPT5AgentTool extends Tool {
         }
       }
       
+      // Check if response_id exists, log if missing
+      if (!previousResponseId) {
+        console.warn("Warning: No response_id available", { previousResponseId });
+      }
+      
       // Format final result
       let result = `## 🤖 GPT-5 Agent Task Completed\n\n`;
+      
+      // Add response_id first for easy access
+      if (previousResponseId) {
+        result += `**Response ID**: ${previousResponseId}\n`;
+        result += `─────────────────────────────────────────\n`;
+      }
+      
       result += `**Task**: ${task}\n`;
       result += `**Model**: ${model}\n`;
       result += `**Iterations**: ${iterations}\n`;
