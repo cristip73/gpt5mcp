@@ -26,6 +26,9 @@ interface GPT5AgentArgs {
   // Optional Context
   system_prompt?: string;
   context?: string;
+  
+  // Optional Continuation
+  previous_response_id?: string;
 }
 
 interface ResponsesAPIRequest {
@@ -42,6 +45,7 @@ interface ResponsesAPIRequest {
   previous_response_id?: string;
   max_output_tokens?: number;
   stream?: boolean;
+  store?: boolean;
 }
 
 interface ResponsesAPIResponse {
@@ -129,6 +133,10 @@ export class GPT5AgentTool extends Tool {
       context: {
         type: 'string',
         description: 'Additional context for the task'
+      },
+      previous_response_id: {
+        type: 'string',
+        description: 'ID from a previous response to continue the conversation'
       }
     },
     required: ['task'],
@@ -250,7 +258,7 @@ export class GPT5AgentTool extends Tool {
       const initialRequest: ResponsesAPIRequest = {
         model,
         input: [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: systemPrompt },  // Always include instructions
           { role: 'user', content: userPrompt }
         ],
         tools: tools.length > 0 ? tools : undefined,
@@ -262,8 +270,10 @@ export class GPT5AgentTool extends Tool {
           verbosity
         },
         max_output_tokens: 4000,
-        stream: false
-      };
+        stream: false,
+        store: !args.previous_response_id,  // Store new conversations for continuation
+        previous_response_id: args.previous_response_id  // Use provided ID if continuing
+      } as ResponsesAPIRequest;
       
       // Track execution
       let iterations = 0;
@@ -272,7 +282,7 @@ export class GPT5AgentTool extends Tool {
       let totalReasoningTokens = 0;
       const toolCallRecords: Array<{tool: string; arguments: any; result: any; status: string}> = [];
       const statusUpdates: string[] = [];
-      let previousResponseId: string | undefined;
+      let previousResponseId: string | undefined = args.previous_response_id;
       let finalOutput = '';
       let reasoningSummary = '';
       
@@ -293,7 +303,8 @@ export class GPT5AgentTool extends Tool {
             verbosity
           },
           max_output_tokens: 4000,
-          stream: false
+          stream: false,
+          store: true  // Continue storing for potential future continuations
         };
         
         // Make API request
@@ -463,6 +474,7 @@ export class GPT5AgentTool extends Tool {
         output: result,
         status: 'success',
         metadata: {
+          response_id: previousResponseId,  // Expose for continuation
           task,
           model,
           iterations,
