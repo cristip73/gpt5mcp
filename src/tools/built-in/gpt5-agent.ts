@@ -330,7 +330,8 @@ export class GPT5AgentTool extends Tool {
     
     // Build file content
     const contentParts = [
-      `# Task: ${task}`,
+      `# Task:`,
+      task,
       ''
     ];
     
