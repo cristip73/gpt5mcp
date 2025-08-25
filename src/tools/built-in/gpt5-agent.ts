@@ -345,8 +345,14 @@ export class GPT5AgentTool extends Tool {
     contentParts.push('');
     contentParts.push('---');
     
-    const tokenInfo = `${Math.round(metadata.tokens.input/1000)}k/${Math.round(metadata.tokens.output/1000)}k/${Math.round(metadata.tokens.reasoning/1000)}k`;
-    contentParts.push(`*Generated: ${now.toISOString()} | Response ID: ${metadata.response_id} | Model: ${metadata.model} | Tokens: ${tokenInfo}*`);
+    const inputTokens = `Input: ${(metadata.tokens.input/1000).toFixed(1)}k`;
+    const outputTokens = `Output: ${(metadata.tokens.output/1000).toFixed(1)}k`;
+    const reasoningTokens = metadata.tokens.reasoning > 0 ? `Reasoning: ${(metadata.tokens.reasoning/1000).toFixed(1)}k` : '';
+    const tokenInfo = reasoningTokens ? `${inputTokens} | ${outputTokens} | ${reasoningTokens}` : `${inputTokens} | ${outputTokens}`;
+    
+    const executionInfo = `Time: ${metadata.execution_time.toFixed(1)}s | Iterations: ${metadata.iterations}`;
+    
+    contentParts.push(`*Generated: ${now.toISOString()} | Response ID: ${metadata.response_id} | Model: ${metadata.model} | ${executionInfo} | ${tokenInfo}*`);
     
     const content = contentParts.join('\n');
     
@@ -734,7 +740,7 @@ export class GPT5AgentTool extends Tool {
           metaParts.push(`Tool calls: ${toolCallRecords.length}`);
         }
         
-        metaParts.push('\n💡 To read the output: Use Read tool with the file path above');
+        metaParts.push('\n📖 Read the file only if instructed for full content');
         
         result = metaParts.join('\n');
       }
