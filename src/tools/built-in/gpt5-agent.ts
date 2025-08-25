@@ -38,6 +38,9 @@ interface GPT5AgentArgs {
   // Optional File Output Settings
   save_to_file?: boolean;
   display_in_chat?: boolean;
+  
+  // Optional File Input
+  file_path?: string;
 }
 
 interface ResponsesAPIRequest {
@@ -161,6 +164,10 @@ export class GPT5AgentTool extends Tool {
         type: 'boolean',
         description: 'Display full output in chat response',
         default: true
+      },
+      file_path: {
+        type: 'string',
+        description: 'Absolute path to a file whose content will be appended to the prompt (max 100KB)'
       }
     },
     required: ['task'],
@@ -389,6 +396,36 @@ export class GPT5AgentTool extends Tool {
       let userPrompt = task;
       if (taskContext) {
         userPrompt += `\n\nContext: ${taskContext}`;
+      }
+      
+      // Handle file input if provided
+      if (args.file_path) {
+        // Validate absolute path
+        if (!path.isAbsolute(args.file_path)) {
+          throw new Error(`File path must be absolute, got: ${args.file_path}`);
+        }
+        
+        try {
+          // Check file exists and get stats
+          const stats = await fs.stat(args.file_path);
+          
+          // Validate file size (100KB limit)
+          const maxSize = 100 * 1024; // 100KB
+          if (stats.size > maxSize) {
+            throw new Error(`File too large: ${(stats.size / 1024).toFixed(1)}KB (max: 100KB)`);
+          }
+          
+          // Read file content
+          const fileContent = await fs.readFile(args.file_path, 'utf-8');
+          
+          // Append to prompt with <file> tags
+          userPrompt += `\n\n<file>\npath: ${args.file_path}\ncontent:\n${fileContent}\n</file>`;
+        } catch (error: any) {
+          if (error.code === 'ENOENT') {
+            throw new Error(`File not found: ${args.file_path}`);
+          }
+          throw error;
+        }
       }
       
       // Rough token estimation (1 token ≈ 4 chars)
