@@ -105,6 +105,30 @@ export class ImageGenerationTool extends Tool {
     return { isValid: true };
   }
 
+  private async saveImageFromBase64(base64Data: string, prompt: string): Promise<string> {
+    try {
+      // Create _IMAGES directory if it doesn't exist
+      const imagesDir = path.join(process.cwd(), '_IMAGES');
+      await fs.mkdir(imagesDir, { recursive: true });
+
+      // Generate filename from prompt (sanitized) and timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const sanitizedPrompt = prompt.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_').slice(0, 50);
+      const filename = `${sanitizedPrompt}_${timestamp}.png`;
+      const filepath = path.join(imagesDir, filename);
+
+      // Decode base64 and save to file
+      const buffer = Buffer.from(base64Data, 'base64');
+      await fs.writeFile(filepath, buffer);
+
+      console.error(`Image saved locally from base64: ${filepath}`);
+      return filepath;
+    } catch (error) {
+      console.error('Failed to save image from base64:', error);
+      throw error;
+    }
+  }
+
   private async downloadAndSaveImage(imageUrl: string, prompt: string): Promise<string> {
     try {
       // Create _IMAGES directory if it doesn't exist
@@ -170,6 +194,7 @@ export class ImageGenerationTool extends Tool {
         }
       }
       // gpt-image-1 doesn't use quality, style or response_format parameters
+      // It always returns base64
 
       console.error('Making OpenAI Images API request:', JSON.stringify(requestBody, null, 2));
 
@@ -206,20 +231,39 @@ export class ImageGenerationTool extends Tool {
         throw new Error('No images were generated');
       }
 
-      // Get the image URL
       const image = data.data[0];
-      const imageUrl = image.url;
-
-      if (!imageUrl) {
-        throw new Error('No image URL in response');
-      }
-      
-      // Download and save image locally
+      let imageUrl: string | undefined;
       let localPath: string | null = null;
-      try {
-        localPath = await this.downloadAndSaveImage(imageUrl, prompt);
-      } catch (error) {
-        console.error('Failed to save image locally, continuing with URL only:', error);
+
+      // Handle different response formats based on model
+      if (model === 'gpt-image-1') {
+        // gpt-image-1 returns base64 data
+        if (!image.b64_json) {
+          throw new Error('No base64 image data in gpt-image-1 response');
+        }
+        
+        // Save base64 directly to file
+        try {
+          localPath = await this.saveImageFromBase64(image.b64_json, prompt);
+          // For display purposes, we'll note it was generated from base64
+          imageUrl = 'Generated from base64 (no URL available)';
+        } catch (error) {
+          console.error('Failed to save base64 image:', error);
+          throw new Error('Failed to save generated image from base64');
+        }
+      } else {
+        // DALL-E 3 returns URL
+        imageUrl = image.url;
+        if (!imageUrl) {
+          throw new Error('No image URL in DALL-E 3 response');
+        }
+        
+        // Download and save image locally
+        try {
+          localPath = await this.downloadAndSaveImage(imageUrl, prompt);
+        } catch (error) {
+          console.error('Failed to save image locally, continuing with URL only:', error);
+        }
       }
 
       let output = `✅ Image generated successfully!\n\n`;
@@ -234,8 +278,12 @@ export class ImageGenerationTool extends Tool {
       
       if (localPath) {
         output += `\n💾 **Saved locally**: ${localPath}\n`;
-        output += `🔗 **Original URL**: ${imageUrl}\n`;
-      } else {
+        if (model === 'dall-e-3' && imageUrl) {
+          output += `🔗 **Original URL**: ${imageUrl}\n`;
+        } else if (model === 'gpt-image-1') {
+          output += `📦 **Format**: Base64 (saved directly to file)\n`;
+        }
+      } else if (imageUrl && model === 'dall-e-3') {
         output += `\n🔗 **Image URL**: ${imageUrl}\n`;
       }
       
@@ -243,7 +291,9 @@ export class ImageGenerationTool extends Tool {
         output += `\n📝 **Revised Prompt**: ${image.revised_prompt}\n`;
       }
 
-      if (localPath) {
+      if (model === 'gpt-image-1') {
+        output += `\n📁 **Note**: gpt-image-1 returns base64 data. Image saved directly to _IMAGES folder.`;
+      } else if (localPath) {
         output += `\n📁 **Note**: Image saved in _IMAGES folder for permanent storage. URL expires after 1 hour.`;
       } else {
         output += `\n⚠️  **Note**: Image URLs are temporary and typically expire after 1 hour.`;
@@ -258,10 +308,11 @@ export class ImageGenerationTool extends Tool {
           size,
           quality: model === 'dall-e-3' ? quality : null,
           style: style || null,
-          image_url: imageUrl,
+          image_url: model === 'dall-e-3' ? imageUrl : null,
           local_path: localPath,
           revised_prompt: image.revised_prompt || null,
-          created_at: new Date(data.created * 1000).toISOString()
+          created_at: new Date(data.created * 1000).toISOString(),
+          format: model === 'gpt-image-1' ? 'base64' : 'url'
         }
       };
 
