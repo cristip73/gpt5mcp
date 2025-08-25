@@ -1,0 +1,1 @@
+What is the current temperature in London right now?

@@ -42,8 +42,8 @@ export class ImageGenerationTool extends Tool {
       },
       size: {
         type: 'string',
-        description: 'The size of the generated images. Both dall-e-3 and gpt-image-1 support: 1024x1024, 1024x1792 (portrait), or 1792x1024 (landscape).',
-        enum: ['1024x1024', '1024x1792', '1792x1024'],
+        description: 'The size of the generated images. DALL-E 3: 1024x1024, 1024x1792, 1792x1024. GPT-Image-1: 1024x1024, 1024x1536, 1536x1024, auto.',
+        enum: ['1024x1024', '1024x1792', '1792x1024', '1024x1536', '1536x1024', 'auto'],
         default: '1024x1024'
       },
       quality: {
@@ -90,8 +90,8 @@ export class ImageGenerationTool extends Tool {
         return { isValid: false, error: `Invalid style for dall-e-3: ${style}. Valid styles: vivid, natural` };
       }
     } else if (model === 'gpt-image-1') {
-      // GPT-Image-1 validations - same sizes as DALL-E 3
-      const validSizes = ['1024x1024', '1024x1792', '1792x1024'];
+      // GPT-Image-1 validations - different sizes than DALL-E 3
+      const validSizes = ['1024x1024', '1024x1536', '1536x1024', 'auto'];
       if (!validSizes.includes(size)) {
         return { isValid: false, error: `Invalid size for gpt-image-1: ${size}. Valid sizes: ${validSizes.join(', ')}` };
       }
