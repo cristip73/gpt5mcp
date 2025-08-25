@@ -7,44 +7,23 @@ interface ImageGenerationArgs {
   prompt: string;
   model?: 'dall-e-3' | 'gpt-image-1';
   size?: string;
-  quality?: 'standard' | 'hd' | 'low' | 'medium' | 'high';
+  quality?: 'standard' | 'hd';
   style?: 'vivid' | 'natural';
   n?: number;
 }
 
-interface DallE3Response {
+interface ImageGenerationResponse {
   created: number;
   data: Array<{
-    url: string;
+    url?: string;
+    b64_json?: string;
     revised_prompt?: string;
   }>;
 }
 
-interface GPTImage1Response {
-  id: string;
-  object: string;
-  created: number;
-  model: string;
-  status: string;
-  output: Array<{
-    type: string;
-    role: string;
-    content: Array<{
-      type: string;
-      image_url?: {
-        url: string;
-      };
-    }>;
-  }>;
-  usage?: {
-    input_image_pixels?: number;
-    output_image_pixels?: number;
-  };
-}
-
 export class ImageGenerationTool extends Tool {
   name = 'image_generation';
-  description = 'Generate images using OpenAI DALL-E 3 or GPT-4o image generation models. Images are automatically saved to _IMAGES folder for permanent storage.';
+  description = 'Generate images using OpenAI DALL-E 3 or GPT-Image-1 models. Images are automatically saved to _IMAGES folder for permanent storage.';
   type = 'function' as const;
 
   parameters = {
@@ -63,14 +42,14 @@ export class ImageGenerationTool extends Tool {
       },
       size: {
         type: 'string',
-        description: 'The size of the generated images. For dall-e-3: 1024x1024, 1024x1792, or 1792x1024. For gpt-image-1: 512x512, 1024x1024, 1024x1536, or 1536x1024.',
-        enum: ['512x512', '1024x1024', '1024x1792', '1792x1024', '1024x1536', '1536x1024'],
+        description: 'The size of the generated images. Both dall-e-3 and gpt-image-1 support: 1024x1024, 1024x1792 (portrait), or 1792x1024 (landscape).',
+        enum: ['1024x1024', '1024x1792', '1792x1024'],
         default: '1024x1024'
       },
       quality: {
         type: 'string',
-        description: 'The quality of the image. For dall-e-3: "standard" or "hd". For gpt-image-1: "low", "medium", or "high".',
-        enum: ['standard', 'hd', 'low', 'medium', 'high'],
+        description: 'The quality of the image. Only supported by dall-e-3: "standard" or "hd".',
+        enum: ['standard', 'hd'],
         default: 'standard'
       },
       style: {
@@ -111,17 +90,13 @@ export class ImageGenerationTool extends Tool {
         return { isValid: false, error: `Invalid style for dall-e-3: ${style}. Valid styles: vivid, natural` };
       }
     } else if (model === 'gpt-image-1') {
-      // GPT-Image-1 validations
-      const validSizes = ['512x512', '1024x1024', '1024x1536', '1536x1024'];
+      // GPT-Image-1 validations - same sizes as DALL-E 3
+      const validSizes = ['1024x1024', '1024x1792', '1792x1024'];
       if (!validSizes.includes(size)) {
         return { isValid: false, error: `Invalid size for gpt-image-1: ${size}. Valid sizes: ${validSizes.join(', ')}` };
       }
 
-      const validQualities = ['low', 'medium', 'high'];
-      if (!validQualities.includes(quality)) {
-        return { isValid: false, error: `Invalid quality for gpt-image-1: ${quality}. Valid qualities: ${validQualities.join(', ')}` };
-      }
-
+      // gpt-image-1 doesn't support quality or style parameters
       if (style) {
         return { isValid: false, error: 'Style parameter is not supported by gpt-image-1 model' };
       }
@@ -160,131 +135,6 @@ export class ImageGenerationTool extends Tool {
     }
   }
 
-  private async generateWithDallE3(prompt: string, size: string, quality: string, style: string | undefined, apiKey: string): Promise<{ url: string; revisedPrompt?: string }> {
-    const requestBody: any = {
-      model: 'dall-e-3',
-      prompt,
-      n: 1,
-      size,
-      quality,
-      response_format: 'url'
-    };
-
-    if (style) {
-      requestBody.style = style;
-    }
-
-    console.error('Making DALL-E 3 API request:', JSON.stringify(requestBody, null, 2));
-
-    const response = await fetch('https://api.openai.com/v1/images/generations', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      let errorMessage = `DALL-E 3 API error: ${response.status} ${response.statusText}`;
-      
-      try {
-        const errorData = JSON.parse(errorText);
-        if (errorData.error?.message) {
-          errorMessage = errorData.error.message;
-        }
-      } catch {
-        errorMessage += ` - ${errorText}`;
-      }
-      
-      throw new Error(errorMessage);
-    }
-
-    const data = await response.json() as DallE3Response;
-    console.error('DALL-E 3 API response:', JSON.stringify(data, null, 2));
-
-    if (!data.data || data.data.length === 0) {
-      throw new Error('No images were generated');
-    }
-
-    return {
-      url: data.data[0].url,
-      revisedPrompt: data.data[0].revised_prompt
-    };
-  }
-
-  private async generateWithGPTImage1(prompt: string, size: string, quality: string, apiKey: string): Promise<{ url: string; revisedPrompt?: string }> {
-    // Map quality to pixel counts for gpt-image-1
-    const qualityToPixels: Record<string, number> = {
-      'low': 512 * 512,
-      'medium': 1024 * 1024,
-      'high': 1536 * 1024
-    };
-
-    // Note: gpt-image-1 doesn't accept size parameter directly in the API
-    // The size is determined by the quality level or specific request configuration
-
-    const requestBody = {
-      model: 'gpt-image-1',
-      input: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: prompt
-            }
-          ]
-        }
-      ]
-    };
-
-    console.error('Making GPT-Image-1 API request:', JSON.stringify(requestBody, null, 2));
-
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      let errorMessage = `GPT-Image-1 API error: ${response.status} ${response.statusText}`;
-      
-      try {
-        const errorData = JSON.parse(errorText);
-        if (errorData.error?.message) {
-          errorMessage = errorData.error.message;
-        }
-      } catch {
-        errorMessage += ` - ${errorText}`;
-      }
-      
-      throw new Error(errorMessage);
-    }
-
-    const data = await response.json() as GPTImage1Response;
-    console.error('GPT-Image-1 API response:', JSON.stringify(data, null, 2));
-
-    // Extract image URL from the response structure
-    const output = data.output?.[0];
-    const content = output?.content?.[0];
-    const imageUrl = content?.image_url?.url;
-
-    if (!imageUrl) {
-      throw new Error('No image URL found in GPT-Image-1 response');
-    }
-
-    return {
-      url: imageUrl,
-      revisedPrompt: undefined // GPT-Image-1 doesn't return revised prompts
-    };
-  }
-
   async execute(args: ImageGenerationArgs, context: ToolExecutionContext): Promise<ToolResult> {
     try {
       const { prompt, model = 'gpt-image-1', size = '1024x1024', quality = 'standard', style, n = 1 } = args;
@@ -303,19 +153,71 @@ export class ImageGenerationTool extends Tool {
         throw new Error(`Prompt too long: ${prompt.length} characters. Maximum: ${maxLength} characters.`);
       }
 
-      // Generate image based on model
-      let imageResult: { url: string; revisedPrompt?: string };
-      
+      // Prepare request body - both models use the same Images API
+      const requestBody: any = {
+        model,
+        prompt,
+        n,
+        size,
+        response_format: 'url'
+      };
+
+      // Add model-specific parameters
       if (model === 'dall-e-3') {
-        imageResult = await this.generateWithDallE3(prompt, size, quality, style, context.apiKey);
-      } else {
-        imageResult = await this.generateWithGPTImage1(prompt, size, quality, context.apiKey);
+        requestBody.quality = quality;
+        if (style) {
+          requestBody.style = style;
+        }
+      }
+      // gpt-image-1 doesn't use quality or style parameters
+
+      console.error('Making OpenAI Images API request:', JSON.stringify(requestBody, null, 2));
+
+      // Both models use the same endpoint
+      const response = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${context.apiKey}`,
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = `OpenAI Images API error: ${response.status} ${response.statusText}`;
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          if (errorData.error?.message) {
+            errorMessage = errorData.error.message;
+          }
+        } catch {
+          errorMessage += ` - ${errorText}`;
+        }
+        
+        throw new Error(errorMessage);
       }
 
+      const data = await response.json() as ImageGenerationResponse;
+      console.error('OpenAI Images API response:', JSON.stringify(data, null, 2));
+
+      if (!data.data || data.data.length === 0) {
+        throw new Error('No images were generated');
+      }
+
+      // Get the image URL
+      const image = data.data[0];
+      const imageUrl = image.url;
+
+      if (!imageUrl) {
+        throw new Error('No image URL in response');
+      }
+      
       // Download and save image locally
       let localPath: string | null = null;
       try {
-        localPath = await this.downloadAndSaveImage(imageResult.url, prompt);
+        localPath = await this.downloadAndSaveImage(imageUrl, prompt);
       } catch (error) {
         console.error('Failed to save image locally, continuing with URL only:', error);
       }
@@ -323,20 +225,22 @@ export class ImageGenerationTool extends Tool {
       let output = `✅ Image generated successfully!\n\n`;
       output += `🎨 **Model**: ${model}\n`;
       output += `📐 **Size**: ${size}\n`;
-      output += `⭐ **Quality**: ${quality}\n`;
-      if (style && model === 'dall-e-3') {
-        output += `🎭 **Style**: ${style}\n`;
+      if (model === 'dall-e-3') {
+        output += `⭐ **Quality**: ${quality}\n`;
+        if (style) {
+          output += `🎭 **Style**: ${style}\n`;
+        }
       }
       
       if (localPath) {
         output += `\n💾 **Saved locally**: ${localPath}\n`;
-        output += `🔗 **Original URL**: ${imageResult.url}\n`;
+        output += `🔗 **Original URL**: ${imageUrl}\n`;
       } else {
-        output += `\n🔗 **Image URL**: ${imageResult.url}\n`;
+        output += `\n🔗 **Image URL**: ${imageUrl}\n`;
       }
       
-      if (imageResult.revisedPrompt) {
-        output += `\n📝 **Revised Prompt**: ${imageResult.revisedPrompt}\n`;
+      if (image.revised_prompt) {
+        output += `\n📝 **Revised Prompt**: ${image.revised_prompt}\n`;
       }
 
       if (localPath) {
@@ -352,12 +256,12 @@ export class ImageGenerationTool extends Tool {
         metadata: {
           model,
           size,
-          quality,
+          quality: model === 'dall-e-3' ? quality : null,
           style: style || null,
-          image_url: imageResult.url,
+          image_url: imageUrl,
           local_path: localPath,
-          revised_prompt: imageResult.revisedPrompt || null,
-          created_at: new Date().toISOString()
+          revised_prompt: image.revised_prompt || null,
+          created_at: new Date(data.created * 1000).toISOString()
         }
       };
 
@@ -375,6 +279,10 @@ export class ImageGenerationTool extends Tool {
         errorMessage = 'Insufficient quota for image generation. Please check your OpenAI account usage and billing.';
       } else if (errorMessage.includes('model_not_found') || errorMessage.includes('gpt-image-1')) {
         errorMessage = 'The gpt-image-1 model may not be available for your account. Try using dall-e-3 instead.';
+      } else if (errorMessage.includes('only supports n=1')) {
+        errorMessage = 'This model currently only supports generating 1 image at a time (n=1).';
+      } else if (errorMessage.includes('Unrecognized request argument')) {
+        errorMessage = `Invalid parameter sent to API: ${errorMessage}`;
       }
 
       return {
