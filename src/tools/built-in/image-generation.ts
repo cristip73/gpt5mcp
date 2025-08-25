@@ -161,13 +161,13 @@ export class ImageGenerationTool extends Tool {
         model,
         prompt,
         n,
-        size,
-        response_format: 'url'
+        size
       };
 
       // Add model-specific parameters
       if (model === 'dall-e-3') {
         requestBody.quality = quality;
+        requestBody.response_format = 'url';
         if (style) {
           requestBody.style = style;
         }
