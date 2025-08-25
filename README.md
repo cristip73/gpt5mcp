@@ -28,18 +28,48 @@ Execute complex multi-step tasks with GPT-5's reasoning capabilities. The agent 
 - `quality_over_cost` - Maximize quality regardless of token cost (default: false)
 - `show_preambles` - Show status updates between tool calls (default: true)
 - `show_reasoning_summary` - Include reasoning summary (default: true)
-- `enable_web_search` - Enable web search capability (default: false)
+- `enable_web_search` - Enable web search capability (default: true) - provides real-time information
 - `enable_file_operations` - Enable file operations capability (default: false)
 - `enable_code_interpreter` - Enable code interpreter capability (default: false)
+- `save_to_file` - Save output to markdown file in `gpt5_docs/` folder (default: true)
+- `display_in_chat` - Display full output in chat response (default: true)
 
-**Example:**
+**File Output Behavior:**
+The agent automatically saves outputs to `gpt5_docs/` folder with the following behavior:
+
+| save_to_file | display_in_chat | Result |
+|--------------|-----------------|--------|
+| true (default) | true (default) | Output shown in chat + saved to file |
+| true | false | Only metadata shown, full output in file (saves tokens) |
+| false | true | Output shown in chat only, no file created |
+| false | false | Output shown in chat only (ignores display flag) |
+
+Files are named: `agent_YYYYMMDD_HHMMSS_task-slug.md` with full output and metadata.
+
+**Examples:**
+
 ```json
 {
-  "task": "Create a Python script that analyzes CSV data and generates visualizations",
+  "task": "Create a Python script that analyzes CSV data",
   "reasoning_effort": "high",
   "enable_code_interpreter": true,
-  "enable_file_operations": true,
   "quality_over_cost": true
+}
+```
+
+```json
+{
+  "task": "Research the top 10 JavaScript frameworks",
+  "display_in_chat": false,
+  "enable_web_search": true
+}
+```
+
+```json
+{
+  "task": "Quick calculation: what is 15% of 2500?",
+  "save_to_file": false,
+  "reasoning_effort": "minimal"
 }
 ```
 
