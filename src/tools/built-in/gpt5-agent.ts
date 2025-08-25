@@ -381,10 +381,7 @@ export class GPT5AgentTool extends Tool {
         context: taskContext,
         quality_over_cost = false,
         save_to_file = true,
-        display_in_chat = true,
-        enable_web_search = true,
-        enable_code_interpreter = false,
-        enable_file_operations = false
+        display_in_chat = true
       } = args;
       
       // Build initial input to estimate token count for adaptive reasoning effort
