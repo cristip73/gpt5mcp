@@ -41,6 +41,10 @@ interface GPT5AgentArgs {
   
   // Optional File Input
   file_path?: string;
+  files?: Array<{
+    path: string;
+    label?: string;
+  }>;
 }
 
 interface ResponsesAPIRequest {
@@ -168,6 +172,25 @@ export class GPT5AgentTool extends Tool {
       file_path: {
         type: 'string',
         description: 'Absolute path to a file whose content will be appended to the prompt (max 100KB)'
+      },
+      files: {
+        type: 'array',
+        description: 'Multiple files to append to the prompt (max 100KB each, 200KB total)',
+        items: {
+          type: 'object',
+          properties: {
+            path: {
+              type: 'string',
+              description: 'Absolute path to the file'
+            },
+            label: {
+              type: 'string',
+              description: 'Optional label/description for the file'
+            }
+          },
+          required: ['path'],
+          additionalProperties: false
+        }
       }
     },
     required: ['task'],
@@ -374,6 +397,27 @@ export class GPT5AgentTool extends Tool {
     };
   }
 
+  private async validateAndReadFile(filePath: string): Promise<{ content: string; size: number }> {
+    // Validate absolute path
+    if (!path.isAbsolute(filePath)) {
+      throw new Error(`File path must be absolute, got: ${filePath}`);
+    }
+    
+    // Check file exists and get stats
+    const stats = await fs.stat(filePath);
+    
+    // Validate file size (100KB limit per file)
+    const maxSize = 100 * 1024; // 100KB
+    if (stats.size > maxSize) {
+      throw new Error(`File too large: ${filePath} is ${(stats.size / 1024).toFixed(1)}KB (max: 100KB)`);
+    }
+    
+    // Read file content
+    const content = await fs.readFile(filePath, 'utf-8');
+    
+    return { content, size: stats.size };
+  }
+
   async execute(args: GPT5AgentArgs, context: ToolExecutionContext): Promise<ToolResult> {
     try {
       const startTime = Date.now();
@@ -398,33 +442,47 @@ export class GPT5AgentTool extends Tool {
         userPrompt += `\n\nContext: ${taskContext}`;
       }
       
-      // Handle file input if provided
+      // Handle file inputs
+      let totalFileSize = 0;
+      const maxTotalSize = 200 * 1024; // 200KB total limit
+      
+      // Handle single file input (backward compatibility)
       if (args.file_path) {
-        // Validate absolute path
-        if (!path.isAbsolute(args.file_path)) {
-          throw new Error(`File path must be absolute, got: ${args.file_path}`);
-        }
-        
         try {
-          // Check file exists and get stats
-          const stats = await fs.stat(args.file_path);
-          
-          // Validate file size (100KB limit)
-          const maxSize = 100 * 1024; // 100KB
-          if (stats.size > maxSize) {
-            throw new Error(`File too large: ${(stats.size / 1024).toFixed(1)}KB (max: 100KB)`);
-          }
-          
-          // Read file content
-          const fileContent = await fs.readFile(args.file_path, 'utf-8');
-          
-          // Append to prompt with <file> tags
-          userPrompt += `\n\n<file>\npath: ${args.file_path}\ncontent:\n${fileContent}\n</file>`;
+          const { content, size } = await this.validateAndReadFile(args.file_path);
+          totalFileSize += size;
+          userPrompt += `\n\n<file>\npath: ${args.file_path}\ncontent:\n${content}\n</file>`;
         } catch (error: any) {
           if (error.code === 'ENOENT') {
             throw new Error(`File not found: ${args.file_path}`);
           }
           throw error;
+        }
+      }
+      
+      // Handle multiple files input
+      if (args.files && args.files.length > 0) {
+        for (const file of args.files) {
+          try {
+            const { content, size } = await this.validateAndReadFile(file.path);
+            
+            // Check total size limit
+            totalFileSize += size;
+            if (totalFileSize > maxTotalSize) {
+              throw new Error(`Total file size exceeds limit: ${(totalFileSize / 1024).toFixed(1)}KB (max: 200KB)`);
+            }
+            
+            // Use label if provided, otherwise use filename
+            const label = file.label || path.basename(file.path);
+            
+            // Append to prompt with <file> tags
+            userPrompt += `\n\n<file>\npath: ${file.path}\nlabel: ${label}\ncontent:\n${content}\n</file>`;
+          } catch (error: any) {
+            if (error.code === 'ENOENT') {
+              throw new Error(`File not found: ${file.path}`);
+            }
+            throw error;
+          }
         }
       }
       
