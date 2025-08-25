@@ -88,7 +88,7 @@ export class GPT5AgentTool extends Tool {
       reasoning_effort: {
         type: 'string',
         enum: ['minimal', 'low', 'medium', 'high'],
-        description: 'Reasoning depth: minimal (fast), low, medium (default), high (thorough)',
+        description: 'Reasoning depth: minimal (fast), low, medium (default), high (very slow & expensive - use only if explicitly requested)',
         default: 'medium'
       },
       verbosity: {
