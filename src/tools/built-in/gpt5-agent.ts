@@ -193,27 +193,52 @@ export class GPT5AgentTool extends Tool {
   }
 
   private extractOutputText(resp: any): string | null {
+    // Max output size to prevent memory issues (50KB)
+    const MAX_OUTPUT_SIZE = 50000;
+    
     // 1) SDK convenience (present only if you're using official SDK objects)
     if (typeof resp?.output_text === "string" && resp.output_text.trim()) {
-      return resp.output_text;
+      const text = resp.output_text;
+      return text.length > MAX_OUTPUT_SIZE 
+        ? text.substring(0, MAX_OUTPUT_SIZE) + "\n\n⚠️ Output truncated due to size limit"
+        : text;
     }
 
     // 2) Raw Responses API shape - THIS IS WHAT WE NEED
     if (Array.isArray(resp?.output)) {
       const chunks: string[] = [];
+      let totalLength = 0;
+      
       for (const item of resp.output) {
         if (item?.type === "message" && (item.role === "assistant" || !item.role)) {
           const parts = Array.isArray(item.content) ? item.content : [];
           for (const part of parts) {
+            let textToAdd = "";
+            
             // canonical text location
             if (part?.type === "output_text" && typeof part.text === "string") {
-              chunks.push(part.text);
+              textToAdd = part.text;
             }
             // (defensive) handle any unexpected plain-text parts
-            if (part?.type === "text" && typeof part.text === "string") {
-              chunks.push(part.text);
+            else if (part?.type === "text" && typeof part.text === "string") {
+              textToAdd = part.text;
+            }
+            
+            // Check size limit before adding
+            if (textToAdd) {
+              if (totalLength + textToAdd.length > MAX_OUTPUT_SIZE) {
+                const remainingSpace = MAX_OUTPUT_SIZE - totalLength;
+                if (remainingSpace > 100) {
+                  chunks.push(textToAdd.substring(0, remainingSpace));
+                  chunks.push("\n\n⚠️ Output truncated due to size limit");
+                }
+                break;
+              }
+              chunks.push(textToAdd);
+              totalLength += textToAdd.length;
             }
           }
+          if (totalLength >= MAX_OUTPUT_SIZE) break;
         }
       }
       const text = chunks.join("");
@@ -223,8 +248,12 @@ export class GPT5AgentTool extends Tool {
     // 3) Fallback for Chat Completions responses (if someone swaps endpoints)
     if (Array.isArray(resp?.choices) && resp.choices.length) {
       const ch = resp.choices[0];
-      if (ch?.message?.content) return ch.message.content;
-      if (typeof ch?.text === "string") return ch.text;
+      const text = ch?.message?.content || ch?.text;
+      if (text) {
+        return typeof text === "string" && text.length > MAX_OUTPUT_SIZE
+          ? text.substring(0, MAX_OUTPUT_SIZE) + "\n\n⚠️ Output truncated due to size limit"
+          : text;
+      }
     }
 
     return null;
@@ -331,6 +360,14 @@ export class GPT5AgentTool extends Tool {
           throw new Error(errorMessage);
         }
         
+        // Check response size before parsing to prevent memory issues
+        const contentLength = response.headers.get('content-length');
+        const MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10MB limit
+        
+        if (contentLength && parseInt(contentLength) > MAX_RESPONSE_SIZE) {
+          throw new Error(`Response too large: ${(parseInt(contentLength) / 1024 / 1024).toFixed(1)}MB (max: ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`);
+        }
+        
         const data = await response.json() as any;
         
         // Store response ID for next iteration
@@ -432,54 +469,84 @@ export class GPT5AgentTool extends Tool {
         console.warn("Warning: No response_id available", { previousResponseId });
       }
       
-      // Format final result
-      let result = `## 🤖 GPT-5 Agent Task Completed\n\n`;
+      // Format final result with size management
+      const MAX_RESULT_SIZE = 60000; // 60KB total result limit
+      const parts = [];
+      
+      // Header (always included)
+      parts.push(`## 🤖 GPT-5 Agent Task Completed\n\n`);
       
       // Add response_id first for easy access
       if (previousResponseId) {
-        result += `**Response ID**: ${previousResponseId}\n`;
-        result += `─────────────────────────────────────────\n`;
+        parts.push(`**Response ID**: ${previousResponseId}\n`);
+        parts.push(`─────────────────────────────────────────\n`);
       }
       
-      result += `**Task**: ${task}\n`;
-      result += `**Model**: ${model}\n`;
-      result += `**Iterations**: ${iterations}\n`;
-      result += `**Execution Time**: ${((Date.now() - startTime) / 1000).toFixed(1)}s\n\n`;
+      parts.push(`**Task**: ${task}\n`);
+      parts.push(`**Model**: ${model}\n`);
+      parts.push(`**Iterations**: ${iterations}\n`);
+      parts.push(`**Execution Time**: ${((Date.now() - startTime) / 1000).toFixed(1)}s\n\n`);
       
+      // Status updates (limited)
       if (statusUpdates.length > 0 && show_preambles) {
-        result += `### 📊 Status Updates\n`;
-        statusUpdates.forEach((update, index) => {
-          result += `${index + 1}. ${update}\n`;
-        });
-        result += '\n';
+        parts.push(`### 📊 Status Updates\n`);
+        const maxUpdates = Math.min(statusUpdates.length, 5); // Limit to 5 updates
+        for (let i = 0; i < maxUpdates; i++) {
+          parts.push(`${i + 1}. ${statusUpdates[i]}\n`);
+        }
+        if (statusUpdates.length > maxUpdates) {
+          parts.push(`... and ${statusUpdates.length - maxUpdates} more updates\n`);
+        }
+        parts.push('\n');
       }
       
+      // Main result (priority content)
       if (finalOutput && finalOutput.trim()) {
-        result += `### 📝 Result\n${finalOutput.trim()}\n\n`;
+        parts.push(`### 📝 Result\n${finalOutput.trim()}\n\n`);
       } else {
-        // Temporary: show a message that agent completed but output wasn't captured
-        result += `### ⚠️ Note\nAgent completed the task but the response wasn't captured properly.\n\n`;
+        parts.push(`### ⚠️ Note\nAgent completed the task but the response wasn't captured properly.\n\n`);
       }
       
-      if (reasoningSummary && show_reasoning_summary) {
-        result += `### 🧠 Reasoning Summary\n${reasoningSummary}\n\n`;
+      // Check current size before adding optional sections
+      let currentSize = parts.join('').length;
+      
+      // Reasoning summary (if space allows)
+      if (reasoningSummary && show_reasoning_summary && currentSize < MAX_RESULT_SIZE * 0.8) {
+        const summarySection = `### 🧠 Reasoning Summary\n${reasoningSummary}\n\n`;
+        if (currentSize + summarySection.length < MAX_RESULT_SIZE) {
+          parts.push(summarySection);
+          currentSize += summarySection.length;
+        }
       }
       
-      if (toolCallRecords.length > 0) {
-        result += `### 🛠️ Tool Executions\n`;
-        toolCallRecords.forEach((record, index) => {
-          result += `${index + 1}. **${record.tool}** - ${record.status}\n`;
-        });
-        result += '\n';
+      // Tool executions (always include but limit)
+      if (toolCallRecords.length > 0 && currentSize < MAX_RESULT_SIZE * 0.9) {
+        parts.push(`### 🛠️ Tool Executions\n`);
+        const maxTools = Math.min(toolCallRecords.length, 10); // Limit to 10 tool calls
+        for (let i = 0; i < maxTools; i++) {
+          const record = toolCallRecords[i];
+          parts.push(`${i + 1}. **${record.tool}** - ${record.status}\n`);
+        }
+        if (toolCallRecords.length > maxTools) {
+          parts.push(`... and ${toolCallRecords.length - maxTools} more tool calls\n`);
+        }
+        parts.push('\n');
       }
       
-      result += `### 📊 Token Usage\n`;
-      result += `- Input: ${totalInputTokens.toLocaleString()} tokens\n`;
-      result += `- Output: ${totalOutputTokens.toLocaleString()} tokens\n`;
+      // Token usage (always included)
+      parts.push(`### 📊 Token Usage\n`);
+      parts.push(`- Input: ${totalInputTokens.toLocaleString()} tokens\n`);
+      parts.push(`- Output: ${totalOutputTokens.toLocaleString()} tokens\n`);
       if (totalReasoningTokens > 0) {
-        result += `- Reasoning: ${totalReasoningTokens.toLocaleString()} tokens\n`;
+        parts.push(`- Reasoning: ${totalReasoningTokens.toLocaleString()} tokens\n`);
       }
-      result += `- Total: ${(totalInputTokens + totalOutputTokens + totalReasoningTokens).toLocaleString()} tokens\n`;
+      parts.push(`- Total: ${(totalInputTokens + totalOutputTokens + totalReasoningTokens).toLocaleString()} tokens\n`);
+      
+      // Join parts and check final size
+      let result = parts.join('');
+      if (result.length > MAX_RESULT_SIZE) {
+        result = result.substring(0, MAX_RESULT_SIZE - 100) + "\n\n⚠️ Response truncated due to size limit";
+      }
       
       return {
         tool_call_id: `agent_${Date.now()}`,
