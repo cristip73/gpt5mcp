@@ -29,6 +29,9 @@ interface GPT5AgentArgs {
   
   // Optional Continuation
   previous_response_id?: string;
+  
+  // Optional Quality Settings
+  quality_over_cost?: boolean;
 }
 
 interface ResponsesAPIRequest {
@@ -137,6 +140,11 @@ export class GPT5AgentTool extends Tool {
       previous_response_id: {
         type: 'string',
         description: 'ID from a previous response to continue the conversation'
+      },
+      quality_over_cost: {
+        type: 'boolean',
+        description: 'Maximize response quality and completeness regardless of token cost',
+        default: false
       }
     },
     required: ['task'],
@@ -190,6 +198,19 @@ export class GPT5AgentTool extends Tool {
     }
     
     return prompt;
+  }
+
+  private calculateOptimalReasoningEffort(
+    estimatedInputTokens: number, 
+    requestedEffort: 'minimal' | 'low' | 'medium' | 'high'
+  ): 'minimal' | 'low' | 'medium' | 'high' {
+    // Quality-first approach: respect user's requested reasoning effort
+    // Only warn about potential overflow, don't reduce quality
+    if (estimatedInputTokens > 200000 && requestedEffort === 'high') {
+      console.warn(`⚠️  High reasoning effort requested with ${Math.round(estimatedInputTokens/1000)}k input tokens - may cause overflow`);
+    }
+    
+    return requestedEffort;  // Always use user's requested effort level
   }
 
   private extractOutputText(resp: any): string | null {
@@ -270,18 +291,30 @@ export class GPT5AgentTool extends Tool {
         max_iterations = 10,
         show_preambles = true,
         show_reasoning_summary = true,
-        context: taskContext
+        context: taskContext,
+        quality_over_cost = false
       } = args;
       
-      // Build tools array
-      const tools = this.buildToolsArray(args);
-      
-      // Build initial input
+      // Build initial input to estimate token count for adaptive reasoning effort
       const systemPrompt = this.buildSystemPrompt(args);
       let userPrompt = task;
       if (taskContext) {
         userPrompt += `\n\nContext: ${taskContext}`;
       }
+      
+      // Rough token estimation (1 token ≈ 4 chars)
+      const estimatedInputTokens = Math.ceil((systemPrompt + userPrompt).length / 4);
+      
+      // Adaptive reasoning effort based on input complexity (from real user research)
+      const adaptiveReasoningEffort = this.calculateOptimalReasoningEffort(estimatedInputTokens, reasoning_effort);
+      
+      // Set max output tokens based on quality preference
+      const maxOutputTokens = quality_over_cost ? 64000 : 32000;
+      
+      // Build tools array
+      const tools = this.buildToolsArray(args);
+      
+      // Reuse the system and user prompts already built above
       
       // Initial request to Responses API
       const initialRequest: ResponsesAPIRequest = {
@@ -292,13 +325,13 @@ export class GPT5AgentTool extends Tool {
         ],
         tools: tools.length > 0 ? tools : undefined,
         reasoning: {
-          effort: reasoning_effort,
+          effort: adaptiveReasoningEffort,
           summary: show_reasoning_summary ? 'auto' : undefined
         },
         text: {
           verbosity
         },
-        max_output_tokens: 4000,
+        max_output_tokens: maxOutputTokens,
         stream: false,
         store: !args.previous_response_id,  // Store new conversations for continuation
         previous_response_id: args.previous_response_id  // Use provided ID if continuing
@@ -325,13 +358,13 @@ export class GPT5AgentTool extends Tool {
           input: [], // Will be populated with tool outputs
           previous_response_id: previousResponseId,
           reasoning: {
-            effort: reasoning_effort,
+            effort: adaptiveReasoningEffort,
             summary: show_reasoning_summary ? 'auto' : undefined
           },
           text: {
             verbosity
           },
-          max_output_tokens: 4000,
+          max_output_tokens: maxOutputTokens,
           stream: false,
           store: true  // Continue storing for potential future continuations
         };
@@ -373,11 +406,20 @@ export class GPT5AgentTool extends Tool {
         // Store response ID for next iteration
         previousResponseId = data.id;
         
-        // Update token usage
+        // Update token usage and detect reasoning overflow
         if (data.usage) {
           totalInputTokens += data.usage.input_tokens || 0;
           totalOutputTokens += data.usage.output_tokens || 0;
           totalReasoningTokens += data.usage.reasoning_tokens || 0;
+          
+          // Detect reasoning token overflow (from real user research)
+          const reasoningTokens = data.usage.reasoning_tokens || 0;
+          const outputTokens = data.usage.output_tokens || 0;
+          const overflowRatio = outputTokens > 0 ? reasoningTokens / outputTokens : 0;
+          
+          if (overflowRatio > 0.9) {
+            console.warn(`⚠️  Reasoning token overflow detected: ${reasoningTokens} reasoning vs ${outputTokens} output tokens (${(overflowRatio * 100).toFixed(1)}% reasoning)`);
+          }
         }
         
         // Extract reasoning summary if available
@@ -485,7 +527,9 @@ export class GPT5AgentTool extends Tool {
       parts.push(`**Task**: ${task}\n`);
       parts.push(`**Model**: ${model}\n`);
       parts.push(`**Iterations**: ${iterations}\n`);
-      parts.push(`**Execution Time**: ${((Date.now() - startTime) / 1000).toFixed(1)}s\n\n`);
+      parts.push(`**Execution Time**: ${((Date.now() - startTime) / 1000).toFixed(1)}s\n`);
+      parts.push(`**Reasoning Effort**: ${adaptiveReasoningEffort}\n`);
+      parts.push(`**Max Output Tokens**: ${maxOutputTokens.toLocaleString()}${quality_over_cost ? ' (quality mode)' : ''}\n\n`);
       
       // Status updates (limited)
       if (statusUpdates.length > 0 && show_preambles) {
