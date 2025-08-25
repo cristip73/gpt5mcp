@@ -1,0 +1,8 @@
+This is a test file for the GPT-5 agent file_path feature.
+
+It contains multiple lines and some sample content:
+- Line item 1
+- Line item 2  
+- Line item 3
+
+This content should be included in the prompt when file_path is specified.
