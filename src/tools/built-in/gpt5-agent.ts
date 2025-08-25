@@ -1,6 +1,8 @@
 import { Tool, ToolExecutionContext, ToolResult } from '../base.js';
 import fetch from 'node-fetch';
 import { globalToolRegistry } from '../registry.js';
+import { promises as fs } from 'fs';
+import path from 'path';
 
 interface GPT5AgentArgs {
   // Required
@@ -32,6 +34,10 @@ interface GPT5AgentArgs {
   
   // Optional Quality Settings
   quality_over_cost?: boolean;
+  
+  // Optional File Output Settings
+  save_to_file?: boolean;
+  display_in_chat?: boolean;
 }
 
 interface ResponsesAPIRequest {
@@ -145,6 +151,16 @@ export class GPT5AgentTool extends Tool {
         type: 'boolean',
         description: 'Maximize response quality and completeness regardless of token cost',
         default: false
+      },
+      save_to_file: {
+        type: 'boolean',
+        description: 'Save output to markdown file in gpt5_docs folder',
+        default: true
+      },
+      display_in_chat: {
+        type: 'boolean',
+        description: 'Display full output in chat response',
+        default: true
       }
     },
     required: ['task'],
@@ -280,6 +296,70 @@ export class GPT5AgentTool extends Tool {
     return null;
   }
 
+  private async saveAgentOutput(
+    task: string,
+    output: string,
+    summary: string | null,
+    metadata: {
+      response_id: string;
+      model: string;
+      execution_time: number;
+      iterations: number;
+      tokens: { input: number; output: number; reasoning: number };
+    }
+  ): Promise<{ filePath: string; fileSize: number }> {
+    // Create directory if needed
+    const docsDir = path.join(process.cwd(), 'gpt5_docs');
+    await fs.mkdir(docsDir, { recursive: true });
+    
+    // Generate filename
+    const now = new Date();
+    const timestamp = now.toISOString()
+      .replace(/[-:T]/g, '')
+      .replace(/\.\d{3}Z/, '')
+      .slice(0, 15);
+    
+    const slug = task.toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .slice(0, 30);
+    
+    const filename = `agent_${timestamp}_${slug}.md`;
+    const filePath = path.join(docsDir, filename);
+    
+    // Build file content
+    const contentParts = [
+      `# Task: ${task}`,
+      ''
+    ];
+    
+    if (summary) {
+      contentParts.push('## Summary');
+      contentParts.push(summary);
+      contentParts.push('');
+    }
+    
+    contentParts.push('## Full Output');
+    contentParts.push(output);
+    contentParts.push('');
+    contentParts.push('---');
+    
+    const tokenInfo = `${Math.round(metadata.tokens.input/1000)}k/${Math.round(metadata.tokens.output/1000)}k/${Math.round(metadata.tokens.reasoning/1000)}k`;
+    contentParts.push(`*Generated: ${now.toISOString()} | Response ID: ${metadata.response_id} | Model: ${metadata.model} | Tokens: ${tokenInfo}*`);
+    
+    const content = contentParts.join('\n');
+    
+    // Write file
+    await fs.writeFile(filePath, content, 'utf8');
+    const stats = await fs.stat(filePath);
+    
+    return {
+      filePath: path.relative(process.cwd(), filePath),
+      fileSize: stats.size
+    };
+  }
+
   async execute(args: GPT5AgentArgs, context: ToolExecutionContext): Promise<ToolResult> {
     try {
       const startTime = Date.now();
@@ -292,7 +372,9 @@ export class GPT5AgentTool extends Tool {
         show_preambles = true,
         show_reasoning_summary = true,
         context: taskContext,
-        quality_over_cost = false
+        quality_over_cost = false,
+        save_to_file = true,
+        display_in_chat = true
       } = args;
       
       // Build initial input to estimate token count for adaptive reasoning effort
@@ -586,10 +668,75 @@ export class GPT5AgentTool extends Tool {
       }
       parts.push(`- Total: ${(totalInputTokens + totalOutputTokens + totalReasoningTokens).toLocaleString()} tokens\n`);
       
-      // Join parts and check final size
-      let result = parts.join('');
-      if (result.length > MAX_RESULT_SIZE) {
-        result = result.substring(0, MAX_RESULT_SIZE - 100) + "\n\n⚠️ Response truncated due to size limit";
+      // Extract the final output for file saving
+      const outputForFile = finalOutput && finalOutput.trim() ? finalOutput.trim() : 'Agent completed the task but the response wasn\'t captured properly.';
+      
+      // Save to file if requested
+      let fileInfo = null;
+      if (save_to_file) {
+        try {
+          fileInfo = await this.saveAgentOutput(
+            task,
+            outputForFile,
+            reasoningSummary || null,
+            {
+              response_id: previousResponseId || 'unknown',
+              model,
+              execution_time: (Date.now() - startTime) / 1000,
+              iterations,
+              tokens: { 
+                input: totalInputTokens, 
+                output: totalOutputTokens, 
+                reasoning: totalReasoningTokens 
+              }
+            }
+          );
+        } catch (err) {
+          console.error('Failed to save output to file:', err);
+          // Continue without file save
+        }
+      }
+      
+      // Build response based on display_in_chat setting
+      let result = '';
+      
+      if (!save_to_file || display_in_chat) {
+        // Include full content
+        result = parts.join('');
+        
+        if (fileInfo) {
+          result += '\n📄 Saved to: ' + fileInfo.filePath + '\n';
+        }
+        
+        if (result.length > MAX_RESULT_SIZE) {
+          result = result.substring(0, MAX_RESULT_SIZE - 100) + "\n\n⚠️ Response truncated due to size limit";
+        }
+      } else {
+        // Only metadata and file reference
+        const metaParts = [];
+        metaParts.push('✅ Task completed successfully\n');
+        
+        if (fileInfo) {
+          metaParts.push(`📄 Output saved to: ${fileInfo.filePath}`);
+          metaParts.push(`File size: ${(fileInfo.fileSize / 1024).toFixed(1)} KB\n`);
+        }
+        
+        metaParts.push('─────────────────────────────────────────');
+        
+        if (previousResponseId) {
+          metaParts.push(`Response ID: ${previousResponseId}`);
+        }
+        metaParts.push(`Model: ${model}`);
+        metaParts.push(`Execution: ${((Date.now() - startTime) / 1000).toFixed(1)}s, ${iterations} iterations`);
+        metaParts.push(`Tokens: ${Math.round(totalInputTokens/1000)}k input / ${Math.round(totalOutputTokens/1000)}k output / ${Math.round(totalReasoningTokens/1000)}k reasoning`);
+        
+        if (toolCallRecords.length > 0) {
+          metaParts.push(`Tool calls: ${toolCallRecords.length}`);
+        }
+        
+        metaParts.push('\n💡 To read the output: Use Read tool with the file path above');
+        
+        result = metaParts.join('\n');
       }
       
       return {
