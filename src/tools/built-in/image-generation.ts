@@ -158,18 +158,18 @@ export class ImageGenerationTool extends Tool {
         model,
         prompt,
         n,
-        size,
-        response_format: 'url'
+        size
       };
 
       // Add model-specific parameters
       if (model === 'dall-e-3') {
         requestBody.quality = quality;
+        requestBody.response_format = 'url';
         if (style) {
           requestBody.style = style;
         }
       }
-      // gpt-image-1 doesn't use quality or style parameters
+      // gpt-image-1 doesn't use quality, style or response_format parameters
 
       console.error('Making OpenAI Images API request:', JSON.stringify(requestBody, null, 2));
 
