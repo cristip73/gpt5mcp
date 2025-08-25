@@ -50,7 +50,7 @@ Create stunning images from text descriptions with advanced AI models. Images ar
 
 **Parameters:**
 - `prompt` (required) - Text description of desired image (max 4000 chars)
-- `model` - Generation model: `dall-e-3` (default), `gpt-image-1`
+- `model` - Generation model: `gpt-image-1` (default, high quality/higher cost), `dall-e-3` (medium quality/lower cost)
 - `size` - Image dimensions:
   - DALL-E 3: `1024x1024` (default), `1024x1792`, `1792x1024`
   - GPT-Image-1: `1024x1024` (default), `1024x1536`, `1536x1024`
