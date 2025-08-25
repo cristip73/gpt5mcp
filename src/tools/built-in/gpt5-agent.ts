@@ -105,8 +105,8 @@ export class GPT5AgentTool extends Tool {
       },
       enable_web_search: {
         type: 'boolean',
-        description: 'Enable web search capability',
-        default: false
+        description: 'Enable web search capability (IMPORTANT: provides real-time, accurate information with sources)',
+        default: true
       },
       enable_code_interpreter: {
         type: 'boolean',
