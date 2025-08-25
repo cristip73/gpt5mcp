@@ -84,13 +84,7 @@ async function main() {
     async () => {
       console.error("Handling ListToolsRequest");
       
-      const tools = [
-        {
-          name: "gpt5_messages",
-          description: "Generate text using GPT-5 with structured conversation messages",
-          inputSchema: zodToJsonSchema(GPT5MessagesSchema),
-        },
-      ];
+      const tools = [];
       
       // Add all registered tools
       const registeredTools = globalToolRegistry.getToolDefinitions();
@@ -102,7 +96,7 @@ async function main() {
         });
       }
       
-      console.error(`Exposing ${tools.length} tools (1 GPT-5 + ${registeredTools.length} built-in)`);
+      console.error(`Exposing ${tools.length} tools`);
       
       return { tools };
     }
@@ -114,98 +108,39 @@ async function main() {
       console.error("Handling CallToolRequest:", JSON.stringify(request.params));
       
       try {
-        switch (request.params.name) {
-          case "gpt5_messages": {
-            const args = GPT5MessagesSchema.parse(request.params.arguments) as GPT5MessagesArgs;
-            console.error(`GPT-5 Messages: ${args.messages.length} messages${args.previous_response_id ? ' (stateful mode)' : ''}, tools: ${args.enable_tools ? 'enabled' : 'disabled'}`);
-            
-            const result = await callGPT5WithMessages(process.env.OPENAI_API_KEY!, args.messages, {
-              model: args.model,
-              instructions: args.instructions,
-              reasoning_effort: args.reasoning_effort,
-              verbosity: args.verbosity,
-              max_tokens: args.max_tokens,
-              temperature: args.temperature,
-              top_p: args.top_p,
-              parallel_tool_calls: args.parallel_tool_calls,
-              store: args.store,
-              previous_response_id: args.previous_response_id,
-              enable_tools: args.enable_tools
-            });
-            
-            // Check if response_id exists, log if missing
-            if (!result.response_id) {
-              console.warn("Warning: No response_id in result", result);
-            }
-            
-            // Return enhanced response with response_id at the top
-            let responseText = '';
-            
-            // Add response_id first for easy access
-            if (result.response_id) {
-              responseText += `Response ID: ${result.response_id}\n`;
-              responseText += `─────────────────────────────────────────\n\n`;
-            }
-            
-            // Add the full response
-            responseText += JSON.stringify(result.raw_response, null, 2);
-            
-            // Add tool execution summary if tools were used
-            if (result.tool_calls && result.tool_calls.length > 0) {
-              responseText += `\n\n--- Tool Execution Summary ---\n`;
-              responseText += `Tool calls: ${result.tool_calls.length}\n`;
-              if (result.tool_results) {
-                const successful = result.tool_results.filter(r => r.status === 'success').length;
-                const errors = result.tool_results.filter(r => r.status === 'error').length;
-                responseText += `Successful: ${successful}, Errors: ${errors}\n`;
-              }
-            }
-            
+        // Check if it's a registered tool
+        const tool = globalToolRegistry.getTool(request.params.name);
+        if (tool) {
+          console.error(`Executing tool: ${request.params.name}`);
+          
+          const toolResult = await globalToolRegistry.executeTool(
+            request.params.name,
+            request.params.arguments as Record<string, any>,
+            { apiKey: process.env.OPENAI_API_KEY! }
+          );
+          
+          if (toolResult.status === 'error') {
             return {
               content: [{
                 type: "text",
-                text: responseText
+                text: toolResult.error || 'Tool execution failed'
               }],
-              response_id: result.response_id  // Include in return object for programmatic access
+              isError: true
+            };
+          } else {
+            return {
+              content: [{
+                type: "text",
+                text: toolResult.output
+              }]
             };
           }
-          
-          default: {
-            // Check if it's a registered tool
-            const tool = globalToolRegistry.getTool(request.params.name);
-            if (tool) {
-              console.error(`Executing tool: ${request.params.name}`);
-              
-              const toolResult = await globalToolRegistry.executeTool(
-                request.params.name,
-                request.params.arguments as Record<string, any>,
-                { apiKey: process.env.OPENAI_API_KEY! }
-              );
-              
-              if (toolResult.status === 'error') {
-                return {
-                  content: [{
-                    type: "text",
-                    text: toolResult.error || 'Tool execution failed'
-                  }],
-                  isError: true
-                };
-              } else {
-                return {
-                  content: [{
-                    type: "text",
-                    text: toolResult.output
-                  }]
-                };
-              }
-            }
-            
-            throw new McpError(
-              ErrorCode.MethodNotFound,
-              `Unknown tool: ${request.params.name}`
-            );
-          }
         }
+        
+        throw new McpError(
+          ErrorCode.MethodNotFound,
+          `Unknown tool: ${request.params.name}`
+        );
       } catch (error) {
         console.error("ERROR during GPT-5 API call:", error);
         

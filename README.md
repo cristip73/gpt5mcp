@@ -71,41 +71,17 @@ Create stunning images from text descriptions with advanced AI models. Images ar
 }
 ```
 
+## 💤 Inactive Tools
+
+The following tools are available in the codebase but **disabled by default** for performance:
+
 ### GPT-5 Messages
 **`mcp__gpt5-server__gpt5_messages`** - Direct GPT-5 API access with structured conversations
-
-Generate text using GPT-5 with full control over conversation history, reasoning, and parameters.
-
-**Parameters:**
 - `messages` (required) - Array of conversation messages with role and content
 - `model` - Model variant: `gpt-5` (default), `gpt-5-mini`, `gpt-5-nano`
 - `instructions` - System instructions to guide model behavior
 - `reasoning_effort` - Reasoning depth: `low`, `medium`, `high`
-- `verbosity` - Output length control: `low`, `medium`, `high`
-- `max_tokens` - Max output tokens (1-128000)
-- `temperature` - Randomness (0-2, NOT SUPPORTED by GPT-5)
-- `top_p` - Nucleus sampling (0-1)
-- `parallel_tool_calls` - Allow multiple tool calls in parallel
-- `store` - Store conversation for model improvement (default: true)
-- `enable_tools` - Enable tool calling capabilities (default: false)
-- `previous_response_id` - Continue from previous response (stateful mode)
-
-**Message Format:**
-```json
-{
-  "messages": [
-    {"role": "user", "content": "Explain quantum computing"},
-    {"role": "assistant", "content": "Quantum computing is..."},
-    {"role": "user", "content": "How does it differ from classical computing?"}
-  ],
-  "reasoning_effort": "high",
-  "enable_tools": true
-}
-```
-
-## 💤 Inactive Tools
-
-The following tools are available in the codebase but **disabled by default** for performance:
+- `enable_tools` - Enable tool calling capabilities
 
 ### Web Search
 **`mcp__gpt5-server__web_search`** - Search the web for current information
@@ -185,18 +161,6 @@ setToolStatus('image_generation', false);
 }
 ```
 
-### Advanced Conversation
-```json
-{
-  "messages": [
-    {"role": "user", "content": "I need to build a REST API for a blog system"}
-  ],
-  "instructions": "You are a senior backend developer. Provide detailed, production-ready solutions.",
-  "reasoning_effort": "high",
-  "enable_tools": true,
-  "verbosity": "high"
-}
-```
 
 ## 🛠 Development
 
