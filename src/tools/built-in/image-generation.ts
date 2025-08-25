@@ -36,8 +36,8 @@ export class ImageGenerationTool extends Tool {
       model: {
         type: 'string',
         enum: ['dall-e-3', 'gpt-image-1'],
-        description: 'The model to use for image generation. dall-e-3 is stable and widely available, gpt-image-1 offers higher quality but may have limited access.',
-        default: 'dall-e-3'
+        description: 'The model to use for image generation. gpt-image-1 offers high quality, higher cost. dall-e-3 offers medium quality, lower cost.',
+        default: 'gpt-image-1'
       },
       size: {
         type: 'string',
@@ -70,7 +70,7 @@ export class ImageGenerationTool extends Tool {
   };
 
   private validateParameters(args: ImageGenerationArgs): { isValid: boolean; error?: string } {
-    const { model = 'dall-e-3', size = '1024x1024', quality = 'standard', style } = args;
+    const { model = 'gpt-image-1', size = '1024x1024', quality = 'standard', style } = args;
 
     // Validate model-specific parameters
     if (model === 'dall-e-3') {
@@ -140,7 +140,7 @@ export class ImageGenerationTool extends Tool {
 
   async execute(args: ImageGenerationArgs, context: ToolExecutionContext): Promise<ToolResult> {
     try {
-      const { prompt, model = 'dall-e-3', size = '1024x1024', quality = 'standard', style, n = 1 } = args;
+      const { prompt, model = 'gpt-image-1', size = '1024x1024', quality = 'standard', style, n = 1 } = args;
       
       console.error(`Image generation: "${prompt}" using ${model} (${size}, ${quality}${style ? `, ${style}` : ''})`);
 
