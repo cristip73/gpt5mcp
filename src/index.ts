@@ -19,7 +19,7 @@ import { registerAllBuiltInTools, globalToolRegistry } from './tools/index.js';
 import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const envPath = path.join(__dirname, '../../.env');
+const envPath = path.join(__dirname, '../.env');
 dotenv.config({ path: envPath });
 console.error("Environment loaded from:", envPath);
 
