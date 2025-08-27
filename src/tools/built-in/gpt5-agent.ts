@@ -694,10 +694,10 @@ export class GPT5AgentTool extends Tool {
         if (data.usage) {
           totalInputTokens += data.usage.input_tokens || 0;
           totalOutputTokens += data.usage.output_tokens || 0;
-          totalReasoningTokens += data.usage.reasoning_tokens || 0;
+          totalReasoningTokens += data.usage.output_tokens_details?.reasoning_tokens || 0;
           
           // Detect reasoning token overflow (from real user research)
-          const reasoningTokens = data.usage.reasoning_tokens || 0;
+          const reasoningTokens = data.usage.output_tokens_details?.reasoning_tokens || 0;
           const outputTokens = data.usage.output_tokens || 0;
           const overflowRatio = outputTokens > 0 ? reasoningTokens / outputTokens : 0;
           
