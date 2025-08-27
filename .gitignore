@@ -94,3 +94,6 @@ temp/
 
 # Exclude grok-server from repository
 servers/grok-server/
+
+# GPT-5 generated documents
+gpt5_docs/
