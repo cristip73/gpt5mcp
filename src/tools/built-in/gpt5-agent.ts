@@ -246,6 +246,24 @@ export class GPT5AgentTool extends Tool {
     return prompt;
   }
 
+  private isImageFile(filePath: string): boolean {
+    const imageExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+    const ext = path.extname(filePath).toLowerCase();
+    return imageExtensions.includes(ext);
+  }
+
+  private getMimeType(filePath: string): string {
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+      '.gif': 'image/gif'
+    };
+    return mimeTypes[ext] || 'application/octet-stream';
+  }
+
   private calculateOptimalReasoningEffort(
     estimatedInputTokens: number, 
     requestedEffort: 'minimal' | 'low' | 'medium' | 'high'
@@ -378,8 +396,8 @@ export class GPT5AgentTool extends Tool {
     
     const inputTokens = `Input: ${(metadata.tokens.input/1000).toFixed(1)}k`;
     const outputTokens = `Output: ${(metadata.tokens.output/1000).toFixed(1)}k`;
-    const reasoningTokens = metadata.tokens.reasoning > 0 ? `Reasoning: ${(metadata.tokens.reasoning/1000).toFixed(1)}k` : '';
-    const tokenInfo = reasoningTokens ? `${inputTokens} | ${outputTokens} | ${reasoningTokens}` : `${inputTokens} | ${outputTokens}`;
+    const reasoningTokens = `Reasoning: ${(metadata.tokens.reasoning/1000).toFixed(1)}k`;
+    const tokenInfo = `${inputTokens} | ${outputTokens} | ${reasoningTokens}`;
     
     const executionInfo = `Time: ${metadata.execution_time.toFixed(1)}s | Iterations: ${metadata.iterations}`;
     
@@ -397,7 +415,7 @@ export class GPT5AgentTool extends Tool {
     };
   }
 
-  private async validateAndReadFile(filePath: string): Promise<{ content: string; size: number }> {
+  private async validateAndReadTextFile(filePath: string): Promise<{ content: string; size: number }> {
     // Validate absolute path
     if (!path.isAbsolute(filePath)) {
       throw new Error(`File path must be absolute, got: ${filePath}`);
@@ -406,16 +424,57 @@ export class GPT5AgentTool extends Tool {
     // Check file exists and get stats
     const stats = await fs.stat(filePath);
     
-    // Validate file size (100KB limit per file)
+    // Validate file size (100KB limit for text files)
     const maxSize = 100 * 1024; // 100KB
     if (stats.size > maxSize) {
-      throw new Error(`File too large: ${filePath} is ${(stats.size / 1024).toFixed(1)}KB (max: 100KB)`);
+      throw new Error(`Text file too large: ${filePath} is ${(stats.size / 1024).toFixed(1)}KB (max: 100KB)`);
     }
     
-    // Read file content
+    // Read file content as UTF-8 text
     const content = await fs.readFile(filePath, 'utf-8');
     
     return { content, size: stats.size };
+  }
+
+  private async validateAndReadImageFile(filePath: string): Promise<{ content: string; size: number; mimeType: string }> {
+    // Validate absolute path
+    if (!path.isAbsolute(filePath)) {
+      throw new Error(`File path must be absolute, got: ${filePath}`);
+    }
+    
+    // Check file exists and get stats
+    const stats = await fs.stat(filePath);
+    
+    // Validate file size (10MB limit for images)
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (stats.size > maxSize) {
+      throw new Error(`Image file too large: ${filePath} is ${(stats.size / 1024 / 1024).toFixed(1)}MB (max: 10MB)`);
+    }
+    
+    // Get MIME type
+    const mimeType = this.getMimeType(filePath);
+    
+    // Validate supported image format
+    if (!mimeType.startsWith('image/')) {
+      throw new Error(`Unsupported file format: ${filePath}. Supported: PNG, JPEG, WebP, GIF`);
+    }
+    
+    // Read file content as binary buffer and convert to base64
+    const buffer = await fs.readFile(filePath);
+    const base64Content = buffer.toString('base64');
+    const dataUrl = `data:${mimeType};base64,${base64Content}`;
+    
+    return { content: dataUrl, size: stats.size, mimeType };
+  }
+
+  private async validateAndReadFile(filePath: string): Promise<{ content: string; size: number; isImage: boolean; mimeType?: string }> {
+    if (this.isImageFile(filePath)) {
+      const result = await this.validateAndReadImageFile(filePath);
+      return { ...result, isImage: true };
+    } else {
+      const result = await this.validateAndReadTextFile(filePath);
+      return { ...result, isImage: false };
+    }
   }
 
   async execute(args: GPT5AgentArgs, context: ToolExecutionContext): Promise<ToolResult> {
@@ -437,21 +496,42 @@ export class GPT5AgentTool extends Tool {
       
       // Build initial input to estimate token count for adaptive reasoning effort
       const systemPrompt = this.buildSystemPrompt(args);
-      let userPrompt = task;
+      
+      // Build user content array with mixed text/image support
+      const userContent: Array<{
+        type: 'input_text' | 'input_image';
+        text?: string;
+        image_url?: string;
+      }> = [];
+      
+      // Add main task as text content
+      let taskText = task;
       if (taskContext) {
-        userPrompt += `\n\nContext: ${taskContext}`;
+        taskText += `\n\nContext: ${taskContext}`;
       }
       
       // Handle file inputs
-      let totalFileSize = 0;
-      const maxTotalSize = 200 * 1024; // 200KB total limit
+      let totalTextFileSize = 0;
+      const maxTextTotalSize = 200 * 1024; // 200KB total limit for text files
+      const processedFiles: string[] = [];
       
-      // Handle single file input (backward compatibility)
+      // Process single file input (backward compatibility)
       if (args.file_path) {
         try {
-          const { content, size } = await this.validateAndReadFile(args.file_path);
-          totalFileSize += size;
-          userPrompt += `\n\n<file>\npath: ${args.file_path}\ncontent:\n${content}\n</file>`;
+          const fileResult = await this.validateAndReadFile(args.file_path);
+          processedFiles.push(args.file_path);
+          
+          if (fileResult.isImage) {
+            // Add image as separate content part
+            userContent.push({
+              type: 'input_image',
+              image_url: fileResult.content
+            });
+          } else {
+            // Add text file content to task text
+            totalTextFileSize += fileResult.size;
+            taskText += `\n\n<file>\npath: ${args.file_path}\ncontent:\n${fileResult.content}\n</file>`;
+          }
         } catch (error: any) {
           if (error.code === 'ENOENT') {
             throw new Error(`File not found: ${args.file_path}`);
@@ -460,23 +540,32 @@ export class GPT5AgentTool extends Tool {
         }
       }
       
-      // Handle multiple files input
+      // Process multiple files input
       if (args.files && args.files.length > 0) {
         for (const file of args.files) {
           try {
-            const { content, size } = await this.validateAndReadFile(file.path);
+            const fileResult = await this.validateAndReadFile(file.path);
+            processedFiles.push(file.path);
             
-            // Check total size limit
-            totalFileSize += size;
-            if (totalFileSize > maxTotalSize) {
-              throw new Error(`Total file size exceeds limit: ${(totalFileSize / 1024).toFixed(1)}KB (max: 200KB)`);
+            if (fileResult.isImage) {
+              // Add image as separate content part
+              userContent.push({
+                type: 'input_image',
+                image_url: fileResult.content
+              });
+            } else {
+              // Check text file size limits
+              totalTextFileSize += fileResult.size;
+              if (totalTextFileSize > maxTextTotalSize) {
+                throw new Error(`Total text file size exceeds limit: ${(totalTextFileSize / 1024).toFixed(1)}KB (max: 200KB)`);
+              }
+              
+              // Use label if provided, otherwise use filename
+              const label = file.label || path.basename(file.path);
+              
+              // Add text file content to task text
+              taskText += `\n\n<file>\npath: ${file.path}\nlabel: ${label}\ncontent:\n${fileResult.content}\n</file>`;
             }
-            
-            // Use label if provided, otherwise use filename
-            const label = file.label || path.basename(file.path);
-            
-            // Append to prompt with <file> tags
-            userPrompt += `\n\n<file>\npath: ${file.path}\nlabel: ${label}\ncontent:\n${content}\n</file>`;
           } catch (error: any) {
             if (error.code === 'ENOENT') {
               throw new Error(`File not found: ${file.path}`);
@@ -486,8 +575,21 @@ export class GPT5AgentTool extends Tool {
         }
       }
       
+      // Always add the task text as the first content part
+      userContent.unshift({
+        type: 'input_text',
+        text: taskText
+      });
+      
       // Rough token estimation (1 token ≈ 4 chars)
-      const estimatedInputTokens = Math.ceil((systemPrompt + userPrompt).length / 4);
+      // For mixed content, estimate text tokens only (images have separate token calculations)
+      let textLength = systemPrompt.length;
+      for (const content of userContent) {
+        if (content.type === 'input_text' && content.text) {
+          textLength += content.text.length;
+        }
+      }
+      const estimatedInputTokens = Math.ceil(textLength / 4);
       
       // Adaptive reasoning effort based on input complexity (from real user research)
       const adaptiveReasoningEffort = this.calculateOptimalReasoningEffort(estimatedInputTokens, reasoning_effort);
@@ -498,14 +600,12 @@ export class GPT5AgentTool extends Tool {
       // Build tools array
       const tools = this.buildToolsArray(args);
       
-      // Reuse the system and user prompts already built above
-      
-      // Initial request to Responses API
+      // Initial request to Responses API with multimodal content support
       const initialRequest: ResponsesAPIRequest = {
         model,
         input: [
           { role: 'system', content: systemPrompt },  // Always include instructions
-          { role: 'user', content: userPrompt }
+          { role: 'user', content: userContent }  // Mixed text/image content array
         ],
         tools: tools.length > 0 ? tools : undefined,
         reasoning: {
@@ -765,9 +865,7 @@ export class GPT5AgentTool extends Tool {
       parts.push(`### 📊 Token Usage\n`);
       parts.push(`- Input: ${totalInputTokens.toLocaleString()} tokens\n`);
       parts.push(`- Output: ${totalOutputTokens.toLocaleString()} tokens\n`);
-      if (totalReasoningTokens > 0) {
-        parts.push(`- Reasoning: ${totalReasoningTokens.toLocaleString()} tokens\n`);
-      }
+      parts.push(`- Reasoning: ${totalReasoningTokens.toLocaleString()} tokens\n`);
       parts.push(`- Total: ${(totalInputTokens + totalOutputTokens + totalReasoningTokens).toLocaleString()} tokens\n`);
       
       // Extract the final output for file saving
