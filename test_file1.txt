@@ -1,3 +1,0 @@
-File 1 Content:
-This is the first test file.
-It contains some example text.
