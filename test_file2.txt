@@ -1,3 +1,0 @@
-File 2 Content:
-This is the second test file.
-It has different content than the first one.
