@@ -109,19 +109,19 @@ export class GPT5CodexTool extends Tool {
   private mapEditMode(editMode?: GPT5CodexArgs['edit_mode']): string[] {
     // Map our tool's edit_mode to Codex CLI approval/sandbox flags.
     // Codex CLI expects:
-    //  -a, --approval-mode <suggest|auto-edit|full-auto>
+    //  -a, --ask-for-approval <untrusted|on-failure|on-request|never>
     //  -s, --sandbox <read-only|workspace-write|danger-full-access>
     switch (editMode) {
       case 'auto_edit':
-        return ['-a', 'auto-edit', '-s', 'workspace-write'];
+        return ['-a', 'on-request', '-s', 'workspace-write'];
       case 'full_auto':
-        return ['-a', 'full-auto', '-s', 'workspace-write'];
+        return ['-a', 'never', '-s', 'workspace-write'];
       case 'dangerous':
         // Use the explicit bypass flag for full, unsandboxed access
         return ['--dangerously-bypass-approvals-and-sandbox'];
       case 'research':
       default:
-        return ['-a', 'suggest', '-s', 'read-only'];
+        return ['-a', 'untrusted', '-s', 'read-only'];
     }
   }
 
