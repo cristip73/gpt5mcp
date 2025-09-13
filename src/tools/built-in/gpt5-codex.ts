@@ -223,18 +223,7 @@ export class GPT5CodexTool extends Tool {
       const r = this.mapReasoningEffort(reasoning_effort);
       if (r) cli.push('-c', r);
       if (verbosity) cli.push('-c', `text.verbosity=${verbosity}`);
-      // Images
-      const imagePaths: string[] = [];
-      if (images && images.length > 0) imagePaths.push(...images);
-      if (file_path && this.isImageFile(file_path)) imagePaths.push(file_path);
-      if (files) {
-        for (const f of files) {
-          if (this.isImageFile(f.path)) imagePaths.push(f.path);
-        }
-      }
-      for (const img of imagePaths) {
-        cli.push('-i', img);
-      }
+      // Images will be added to exec subcommand, not global
 
       // Exec subcommand and last message capture
       // If save_to_file is requested, capture the last message directly under gpt5_docs
@@ -246,7 +235,23 @@ export class GPT5CodexTool extends Tool {
       const lastMsgPath = save_to_file
         ? path.join(outDir, `.codex_last_${Date.now()}.txt`)
         : path.join(os.tmpdir(), `.codex_last_${Date.now()}.txt`);
-      const execArgs = ['exec', '--skip-git-repo-check', '--output-last-message', lastMsgPath, prompt];
+      // Build exec args with images
+      const execArgs = ['exec', '--skip-git-repo-check'];
+
+      // Add images to exec subcommand
+      const imagePaths: string[] = [];
+      if (images && images.length > 0) imagePaths.push(...images);
+      if (file_path && this.isImageFile(file_path)) imagePaths.push(file_path);
+      if (files) {
+        for (const f of files) {
+          if (this.isImageFile(f.path)) imagePaths.push(f.path);
+        }
+      }
+      for (const img of imagePaths) {
+        execArgs.push('-i', img);
+      }
+
+      execArgs.push('--output-last-message', lastMsgPath, prompt);
 
       const fullArgs = [...cli, ...execArgs];
 
