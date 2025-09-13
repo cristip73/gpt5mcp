@@ -106,22 +106,20 @@ export class GPT5CodexTool extends Tool {
     return `\n\n<file>\npath: ${absPath}\nlabel: ${title}\ncontent:\n${content}\n</file>`;
   }
 
-  private mapEditMode(editMode?: GPT5CodexArgs['edit_mode']): string[] {
+  private mapEditMode(editMode?: GPT5CodexArgs['edit_mode']): { global: string[], exec: string[] } {
     // Map our tool's edit_mode to Codex CLI approval/sandbox flags.
-    // Codex CLI expects:
-    //  -a, --ask-for-approval <untrusted|on-failure|on-request|never>
-    //  -s, --sandbox <read-only|workspace-write|danger-full-access>
+    // Approval flags (-a) are global, sandbox flags (-s) are on exec subcommand
     switch (editMode) {
       case 'auto_edit':
-        return ['-a', 'on-request', '-s', 'workspace-write'];
+        return { global: ['-a', 'on-request'], exec: ['-s', 'workspace-write'] };
       case 'full_auto':
-        return ['-a', 'never', '-s', 'workspace-write'];
+        return { global: ['-a', 'never'], exec: ['-s', 'workspace-write'] };
       case 'dangerous':
         // Use the explicit bypass flag for full, unsandboxed access
-        return ['--dangerously-bypass-approvals-and-sandbox'];
+        return { global: [], exec: ['--dangerously-bypass-approvals-and-sandbox'] };
       case 'research':
       default:
-        return ['-a', 'untrusted', '-s', 'read-only'];
+        return { global: ['-a', 'untrusted'], exec: ['-s', 'read-only'] };
     }
   }
 
@@ -216,8 +214,9 @@ export class GPT5CodexTool extends Tool {
       if (enable_web_search) {
         cli.push('-c', 'tools.web_search=true');
       }
-      // Edit mode
-      cli.push(...this.mapEditMode(edit_mode));
+      // Edit mode - global flags (approval)
+      const editModeFlags = this.mapEditMode(edit_mode);
+      cli.push(...editModeFlags.global);
       // Model & profile
       if (model) cli.push('-m', model);
       if (profile) cli.push('-p', profile);
@@ -248,7 +247,7 @@ export class GPT5CodexTool extends Tool {
       const lastMsgPath = save_to_file
         ? path.join(outDir, `.codex_last_${Date.now()}.txt`)
         : path.join(os.tmpdir(), `.codex_last_${Date.now()}.txt`);
-      const execArgs = ['exec', '--skip-git-repo-check', '--output-last-message', lastMsgPath, prompt];
+      const execArgs = ['exec', '--skip-git-repo-check', ...editModeFlags.exec, '--output-last-message', lastMsgPath, prompt];
 
       const fullArgs = [...cli, ...execArgs];
 
