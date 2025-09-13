@@ -1,5 +1,11 @@
 # MCP Test Plan: gpt5_codex (Codex CLI exec)
 
+## Hotfix 2025-09-13 — Codex trust check in MCP
+
+- Issue: `codex exec` failed in headless mode with “Not inside a trusted directory and --skip-git-repo-check was not specified.”, leading to “No final message captured from Codex”.
+- Fix: Updated MCP tool to always pass `--skip-git-repo-check` when spawning Codex CLI.
+
+
 This test plan validates the new MCP tool `gpt5_codex`, which drives the Codex CLI in headless exec mode. Tests are organized for quick execution by another agent or human tester.
 
 ## Prerequisites
@@ -240,3 +246,23 @@ Troubleshooting tips
   - `codex --version` resolves at `/opt/homebrew/bin/codex` when run outside the IDE.
   - The MCP server logs show: `Environment loaded from: .../.env` and no ENOENT for the codex binary.
   - `OPENAI_API_KEY` is present in the MCP server env.
+
+## Update 2025-09-13 — Error surfacing in MCP responses
+
+What changed
+- The MCP server now returns the tool’s detailed output when a tool call finishes with `status: error`.
+- Previously, only a generic "Tool execution failed" message was surfaced. Now the response concatenates the structured `error` plus a "Details:" section containing the tool’s textual output (including stderr captured by the tool), when available.
+
+Why
+- To make failures of `gpt5_codex` actionable (e.g., missing permissions, CLI exit codes, or `--output-last-message` issues) without opening external logs.
+
+Code reference
+- File: `src/index.ts` — in `CallToolRequestSchema` handler, the error branch now combines `toolResult.error` with `toolResult.output`.
+- Rebuilt via `npm run build`. Ensure your MCP client reloads the server binary (`build/index.js`).
+
+After restart — quick re-test
+1) Run Test 1 (Smoke). If it still fails, you should now see a detailed error body under "Details:" that includes stderr or notes like "No final message captured from Codex".
+2) Use that detail to validate PATH, `CODEX_BIN`, API key, or sandbox settings before continuing with Tests 2–12.
+
+Pass criteria impact
+- No change to success criteria. On failure, the client now surfaces actionable diagnostics inline, aiding triage.

@@ -120,10 +120,15 @@ async function main() {
           );
           
           if (toolResult.status === 'error') {
+            // Surface both the structured error and any textual output (stderr, notes)
+            const combined = [
+              toolResult.error || 'Tool execution failed',
+              toolResult.output && toolResult.output.trim().length > 0 ? `\n\nDetails:\n${toolResult.output}` : ''
+            ].join('');
             return {
               content: [{
                 type: "text",
-                text: toolResult.error || 'Tool execution failed'
+                text: combined
               }],
               isError: true
             };

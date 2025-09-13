@@ -2,6 +2,7 @@ import { Tool, ToolExecutionContext, ToolResult } from '../base.js';
 import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import path from 'path';
+import os from 'os';
 
 interface CodexFileItem {
   path: string;
@@ -212,6 +213,7 @@ export class GPT5CodexTool extends Tool {
       }
       // Edit mode
       cli.push(...this.mapEditMode(edit_mode));
+      // Bypass git repo trust check is applied on the exec subcommand (see below)
       // Model & profile
       if (model) cli.push('-m', model);
       if (profile) cli.push('-p', profile);
@@ -233,8 +235,9 @@ export class GPT5CodexTool extends Tool {
       }
 
       // Exec subcommand and last message capture
-      const tmpOut = path.join(process.cwd(), `.codex_last_${Date.now()}.txt`);
-      const execArgs = ['exec', '--output-last-message', tmpOut, prompt];
+      // Use OS temp dir to avoid sandboxed/non-writable CWDs in some hosts
+      const tmpOut = path.join(os.tmpdir(), `.codex_last_${Date.now()}.txt`);
+      const execArgs = ['exec', '--skip-git-repo-check', '--output-last-message', tmpOut, prompt];
 
       const fullArgs = [...cli, ...execArgs];
 
