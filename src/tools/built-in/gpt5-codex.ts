@@ -218,9 +218,6 @@ export class GPT5CodexTool extends Tool {
       }
       // Edit mode
       cli.push(...this.mapEditMode(edit_mode));
-      // Always bypass git repo trust check at the top-level to support headless execution
-      // across both normal and image-attached invocations.
-      cli.push('--skip-git-repo-check');
       // Model & profile
       if (model) cli.push('-m', model);
       if (profile) cli.push('-p', profile);
@@ -251,7 +248,7 @@ export class GPT5CodexTool extends Tool {
       const lastMsgPath = save_to_file
         ? path.join(outDir, `.codex_last_${Date.now()}.txt`)
         : path.join(os.tmpdir(), `.codex_last_${Date.now()}.txt`);
-      const execArgs = ['exec', '--output-last-message', lastMsgPath, prompt];
+      const execArgs = ['exec', '--skip-git-repo-check', '--output-last-message', lastMsgPath, prompt];
 
       const fullArgs = [...cli, ...execArgs];
 
