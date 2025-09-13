@@ -9,6 +9,7 @@ import {
 import { CodeInterpreterTool } from './built-in/code-interpreter.js';
 import { ImageGenerationTool } from './built-in/image-generation.js';
 import { GPT5AgentTool } from './built-in/gpt5-agent.js';
+import { GPT5CodexTool } from './built-in/gpt5-codex.js';
 import { globalToolRegistry } from './registry.js';
 
 // Re-export for external use
@@ -22,6 +23,7 @@ export {
 export { CodeInterpreterTool } from './built-in/code-interpreter.js';
 export { ImageGenerationTool } from './built-in/image-generation.js';
 export { GPT5AgentTool } from './built-in/gpt5-agent.js';
+export { GPT5CodexTool } from './built-in/gpt5-codex.js';
 
 // Export registry and base classes
 export { globalToolRegistry, ToolRegistry } from './registry.js';
@@ -37,6 +39,7 @@ const ACTIVE_TOOLS = {
   code_interpreter: false,
   image_generation: true,
   gpt5_agent: true,
+  gpt5_codex: true,
 } as const;
 
 // Utility function to register all built-in tools
@@ -65,6 +68,9 @@ export function registerAllBuiltInTools() {
   }
   if (ACTIVE_TOOLS.gpt5_agent) {
     globalToolRegistry.register(new GPT5AgentTool());
+  }
+  if (ACTIVE_TOOLS.gpt5_codex) {
+    globalToolRegistry.register(new GPT5CodexTool());
   }
 
   console.error(`Registered ${globalToolRegistry.listAvailableTools().length} built-in tools`);
