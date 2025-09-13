@@ -266,3 +266,44 @@ After restart — quick re-test
 
 Pass criteria impact
 - No change to success criteria. On failure, the client now surfaces actionable diagnostics inline, aiding triage.
+
+UPDATE Data: 2025-09-13
+
+Acest update consolidează comportamentul tool‑ului `gpt5_codex` și reduce suprafața de testare la un set minim de reconfirmări. Modificările sunt compilate și necesită doar restartarea MCP client/server pentru a intra în vigoare.
+
+- Modificări efectuate (code path: `src/tools/built-in/gpt5-codex.ts`)
+  - Mapare corectă pentru approvals/sandbox (CLI Codex):
+    - `research` → `-a suggest -s read-only`
+    - `auto_edit` → `-a auto-edit -s workspace-write`
+    - `full_auto` → `-a full-auto -s workspace-write`
+    - `dangerous` → `--dangerously-bypass-approvals-and-sandbox`
+  - Impunere bypass trust: adăugat global `--skip-git-repo-check` (nu pe subcomanda `exec`) — rezolvă eroarea la atașarea de imagini.
+  - Salvare directă în workspace: când `save_to_file=true`, fișierul `--output-last-message` este scris direct în `gpt5_docs/.codex_last_<ts>.txt` (nu în `/tmp`).
+  - Timeout explicit: la depășirea timpului se afișează mesaj clar “Timeout după N secunde” și status `timeout`.
+  - Respectare strictă `display_in_chat=false`: nu mai apare conținutul răspunsului în chat; se afișează doar metadate și calea fișierului (dacă s-a salvat).
+  - Implicită sigură pentru scriere: default `edit_mode = auto_edit` (workspace‑write, fără prompturi) astfel încât tool‑ul să poată scrie în `gpt5_docs` în mod implicit.
+
+- Ce mai testăm (scurt, doar reconfirmări după update)
+  1) Test 7 — Image attachment: confirmă că NU mai apare eroarea la `--skip-git-repo-check` și că se produce output salvat.
+  2) Test 8B — Auto edit: verifică crearea efectivă a `NOTES.md` în workspace (confirmă scriere).
+  3) Test 9 — Timeout: confirmă status `timeout` + mesaj explicit când `timeout_sec=5`.
+  4) Test 10B/10D — `display_in_chat=false`: verifică faptul că nu se mai afișează conținutul în chat și că apare doar calea fișierului (10B) / metadate (10D).
+
+- Ce am testat deja cu succes (înainte de acest update)
+  - Test 1 (Smoke), Test 2 (Web Search, cu date corecte pentru iPhone Air), Test 3 (meteo în timp real — a avut o mică abatere la numărul de URL‑uri), Test 4 (model override), Test 5 (file inline single), Test 6 (limită inline >100KB — eroare așteptată), Test 8A (research fără editări), Test 10A (save+chat), Test 10C (chat only), Test 12 (ENOENT pe fișier lipsă).
+
+- Ce a eșuat înainte, dar este ACUM adresat prin modificări
+  - Test 7: eroare `unexpected argument '--skip-git-repo-check'` — remediat prin mutarea flag‑ului la nivel global.
+  - Test 8B: raport “read‑only sandbox” — remediat prin default `auto_edit` + `workspace-write` (scriere permisă în `gpt5_docs`).
+  - Test 9: mesaj neclar la timeout — remediat cu status + text explicit.
+  - Test 10B/10D: `display_in_chat=false` nu era respectat — acum conținutul este suprimat în chat și sunt arătate doar metadate/calea fișierului.
+
+- Concluzie fermă
+  - După efectuarea reconfirmărilor listate la “Ce mai testăm”, NU mai este nevoie să rulăm restul testelor din acest plan pentru a valida update‑ul curent. Acesta finalizează scopul setului de teste pentru `gpt5_codex` în forma actualizată.
+
+Instrucțiuni scurte
+
+- Rulează doar testele din secțiunea “Ce mai testăm”. Restul pot fi marcate ca închise pentru acest update.
+
+---
+# MCP Test Plan: gpt5_codex (Codex CLI exec)
