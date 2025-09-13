@@ -64,7 +64,7 @@ export class GPT5CodexTool extends Tool {
         type: 'string',
         enum: ['research', 'auto_edit', 'full_auto', 'dangerous'],
         description: 'Autonomy/sandbox mapping for Codex CLI',
-        default: 'research'
+        default: 'auto_edit'
       },
       file_path: { type: 'string', description: 'Absolute path to a file (text will be inlined; images will be attached)' },
       files: {
@@ -107,16 +107,21 @@ export class GPT5CodexTool extends Tool {
   }
 
   private mapEditMode(editMode?: GPT5CodexArgs['edit_mode']): string[] {
+    // Map our tool's edit_mode to Codex CLI approval/sandbox flags.
+    // Codex CLI expects:
+    //  -a, --approval-mode <suggest|auto-edit|full-auto>
+    //  -s, --sandbox <read-only|workspace-write|danger-full-access>
     switch (editMode) {
       case 'auto_edit':
-        return ['-a', 'untrusted', '-s', 'workspace-write'];
+        return ['-a', 'auto-edit', '-s', 'workspace-write'];
       case 'full_auto':
-        return ['--full-auto'];
+        return ['-a', 'full-auto', '-s', 'workspace-write'];
       case 'dangerous':
+        // Use the explicit bypass flag for full, unsandboxed access
         return ['--dangerously-bypass-approvals-and-sandbox'];
       case 'research':
       default:
-        return ['-a', 'untrusted', '-s', 'read-only'];
+        return ['-a', 'suggest', '-s', 'read-only'];
     }
   }
 
@@ -161,7 +166,7 @@ export class GPT5CodexTool extends Tool {
       profile,
       reasoning_effort = 'medium',
       verbosity,
-      edit_mode = 'research',
+      edit_mode = 'auto_edit',
       file_path,
       files,
       images,
@@ -213,7 +218,9 @@ export class GPT5CodexTool extends Tool {
       }
       // Edit mode
       cli.push(...this.mapEditMode(edit_mode));
-      // Bypass git repo trust check is applied on the exec subcommand (see below)
+      // Always bypass git repo trust check at the top-level to support headless execution
+      // across both normal and image-attached invocations.
+      cli.push('--skip-git-repo-check');
       // Model & profile
       if (model) cli.push('-m', model);
       if (profile) cli.push('-p', profile);
@@ -235,9 +242,16 @@ export class GPT5CodexTool extends Tool {
       }
 
       // Exec subcommand and last message capture
-      // Use OS temp dir to avoid sandboxed/non-writable CWDs in some hosts
-      const tmpOut = path.join(os.tmpdir(), `.codex_last_${Date.now()}.txt`);
-      const execArgs = ['exec', '--skip-git-repo-check', '--output-last-message', tmpOut, prompt];
+      // If save_to_file is requested, capture the last message directly under gpt5_docs
+      // to avoid writing to temp dirs.
+      const outDir = path.join(process.cwd(), 'gpt5_docs');
+      if (save_to_file) {
+        try { await fs.mkdir(outDir, { recursive: true }); } catch {}
+      }
+      const lastMsgPath = save_to_file
+        ? path.join(outDir, `.codex_last_${Date.now()}.txt`)
+        : path.join(os.tmpdir(), `.codex_last_${Date.now()}.txt`);
+      const execArgs = ['exec', '--output-last-message', lastMsgPath, prompt];
 
       const fullArgs = [...cli, ...execArgs];
 
@@ -267,13 +281,15 @@ export class GPT5CodexTool extends Tool {
       // Read last message file
       let finalOutput = '';
       try {
-        finalOutput = (await fs.readFile(tmpOut, 'utf8')).trim();
+        finalOutput = (await fs.readFile(lastMsgPath, 'utf8')).trim();
       } catch {
         // fallback: if no last message, include stderr hint
         finalOutput = '';
       } finally {
-        // Best-effort cleanup
-        try { await fs.unlink(tmpOut); } catch {}
+        // Best-effort cleanup only if we wrote to tmp
+        if (!save_to_file) {
+          try { await fs.unlink(lastMsgPath); } catch {}
+        }
       }
 
       const execMs = Date.now() - start;
@@ -285,9 +301,14 @@ export class GPT5CodexTool extends Tool {
         `**Mode**: ${edit_mode}\n`+
         `**Execution Time**: ${(execMs/1000).toFixed(1)}s\n\n`;
 
-      const body = finalOutput && finalOutput.length > 0
-        ? `### 📝 Result\n${finalOutput}\n\n`
-        : `### ⚠️ Note\nNo final message captured from Codex.\n\n${stderr ? 'Stderr:\n'+stderr : ''}\n\n`;
+      let body: string;
+      if (exitCode === -1) {
+        body = `### ⏱️ Timeout\nProcess exceeded ${Math.max(1, timeout_sec)}s and was terminated.\n\n${stderr ? 'Stderr:\n'+stderr : ''}\n\n`;
+      } else if (finalOutput && finalOutput.length > 0) {
+        body = `### 📝 Result\n${finalOutput}\n\n`;
+      } else {
+        body = `### ⚠️ Note\nNo final message captured from Codex.\n\n${stderr ? 'Stderr:\n'+stderr : ''}\n\n`;
+      }
 
       let result = header + body;
 
@@ -303,17 +324,20 @@ export class GPT5CodexTool extends Tool {
       }
 
       // Display in chat control
-      if (!display_in_chat && fileInfo) {
-        result = [
+      if (!display_in_chat) {
+        const metaLines = [
           '✅ Task completed successfully',
-          `📄 Output saved to: ${fileInfo.filePath}`,
-          `File size: ${(fileInfo.fileSize/1024).toFixed(1)} KB`,
-          '─────────────────────────────────────────',
           `Model: ${model}`,
           `Execution: ${(execMs/1000).toFixed(1)}s`,
-          `Mode: ${edit_mode}`,
-          '\n📖 Read the file only if instructed for full content'
-        ].join('\n');
+          `Mode: ${edit_mode}`
+        ];
+        if (fileInfo) {
+          metaLines.splice(1, 0, `📄 Output saved to: ${fileInfo.filePath}`, `File size: ${(fileInfo.fileSize/1024).toFixed(1)} KB`);
+          metaLines.push('\n📖 Read the file only if instructed for full content');
+        } else {
+          metaLines.push('\nℹ️ Content suppressed by display_in_chat=false');
+        }
+        result = metaLines.join('\n');
       }
 
       return {
