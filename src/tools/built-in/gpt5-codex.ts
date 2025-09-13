@@ -238,7 +238,7 @@ export class GPT5CodexTool extends Tool {
       // Build exec args with images
       const execArgs = ['exec', '--skip-git-repo-check'];
 
-      // Add images to exec subcommand
+      // Check for images - known Codex CLI limitation with exec mode
       const imagePaths: string[] = [];
       if (images && images.length > 0) imagePaths.push(...images);
       if (file_path && this.isImageFile(file_path)) imagePaths.push(file_path);
@@ -247,9 +247,38 @@ export class GPT5CodexTool extends Tool {
           if (this.isImageFile(f.path)) imagePaths.push(f.path);
         }
       }
-      for (const img of imagePaths) {
-        execArgs.push('-i', img);
+
+      // Known issue: Codex CLI exec mode has problems with images (GitHub #2323, #2473)
+      // It may hang or fall back to interactive mode when -i flag is used
+      if (imagePaths.length > 0) {
+        const execMs = Date.now() - start;
+        const warningMsg = `## ⚠️ Known Limitation\n\n` +
+          `Codex CLI exec mode has known issues with image attachments (GitHub #2323, #2473).\n` +
+          `The CLI may hang or fall back to interactive mode when images are attached.\n\n` +
+          `**Workaround options:**\n` +
+          `- Use Codex interactively for image tasks\n` +
+          `- Use a different model/tool for image analysis\n` +
+          `- Wait for a Codex CLI update that fixes this issue\n\n` +
+          `**Images attempted:** ${imagePaths.join(', ')}\n`;
+
+        return {
+          tool_call_id: `codex_img_limitation_${Date.now()}`,
+          output: warningMsg,
+          status: 'error',
+          error: 'Codex CLI exec mode does not reliably support image attachments',
+          metadata: {
+            model,
+            edit_mode,
+            execution_time_ms: execMs,
+            images: imagePaths
+          }
+        };
       }
+
+      // No longer add images to exec args since they cause issues
+      // for (const img of imagePaths) {
+      //   execArgs.push('-i', img);
+      // }
 
       execArgs.push('--output-last-message', lastMsgPath, prompt);
 
