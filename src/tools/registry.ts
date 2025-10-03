@@ -29,8 +29,8 @@ export class ToolRegistry {
   }
 
   async executeTool(
-    toolName: string, 
-    args: Record<string, any>, 
+    toolName: string,
+    args: Record<string, any>,
     context: ToolExecutionContext
   ): Promise<ToolResult> {
     const tool = this.getTool(toolName);
@@ -45,7 +45,38 @@ export class ToolRegistry {
 
     try {
       console.error(`Executing tool: ${toolName} with args:`, JSON.stringify(args, null, 2));
-      const result = await tool.execute(args, context);
+      const timeoutMs = context.timeout && context.timeout > 0 ? context.timeout : undefined;
+
+      let timeoutHandle: NodeJS.Timeout | undefined;
+      const executionPromise = tool.execute(args, context);
+
+      const timeoutPromise = timeoutMs
+        ? new Promise<ToolResult>((resolve) => {
+            timeoutHandle = setTimeout(() => {
+              resolve({
+                tool_call_id: `timeout_${Date.now()}`,
+                output: '',
+                error: `Tool '${toolName}' timed out after ${timeoutMs}ms`,
+                status: 'timeout'
+              });
+            }, timeoutMs);
+          })
+        : null;
+
+      const result = timeoutPromise
+        ? await Promise.race([executionPromise, timeoutPromise])
+        : await executionPromise;
+
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+
+      if (timeoutPromise && result.status === 'timeout') {
+        executionPromise.catch((err) => {
+          console.error(`Tool ${toolName} continued running after timeout:`, err);
+        });
+      }
+
       console.error(`Tool ${toolName} completed with status: ${result.status}`);
       return result;
     } catch (error) {
