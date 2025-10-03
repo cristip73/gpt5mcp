@@ -40,7 +40,7 @@ interface GPT5CodexArgs {
 
 export class GPT5CodexTool extends Tool {
   name = 'gpt5_codex';
-  description = 'Run Codex CLI in headless exec mode to perform tasks with optional web search';
+  description = 'Runs Codex CLI exec jobs with GPT-5-Codex, applying configured profiles, reasoning, autonomy, and optional web search';
   type = 'function' as const;
 
   parameters = {
