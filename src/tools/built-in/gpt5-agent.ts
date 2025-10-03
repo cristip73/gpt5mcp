@@ -84,7 +84,7 @@ interface ResponsesAPIResponse {
 
 export class GPT5AgentTool extends Tool {
   name = 'gpt5_agent';
-  description = 'Execute autonomous agent tasks using GPT-5 with tool orchestration and persistent reasoning';
+  description = 'Autonomously solves tasks via GPT-5, orchestrating registered tools, web search, code interpreter, and file actions';
   type = 'function' as const;
   
   parameters = {
