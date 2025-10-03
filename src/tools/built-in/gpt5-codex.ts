@@ -14,7 +14,7 @@ interface GPT5CodexArgs {
   task: string;
 
   // Optional Model/Config
-  model?: string; // e.g., gpt-5, gpt-5-chat-latest
+  model?: string; // e.g., gpt-5-codex, gpt-5-chat-latest
   profile?: string;
   reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
   verbosity?: 'low' | 'medium' | 'high';
@@ -47,7 +47,7 @@ export class GPT5CodexTool extends Tool {
     type: 'object',
     properties: {
       task: { type: 'string', description: 'Task prompt for Codex CLI exec' },
-      model: { type: 'string', description: 'Model id, e.g., gpt-5, gpt-5-chat-latest', default: 'gpt-5' },
+      model: { type: 'string', description: 'Model id, e.g., gpt-5-codex, gpt-5-chat-latest', default: 'gpt-5-codex' },
       profile: { type: 'string', description: 'Codex CLI config profile' },
       reasoning_effort: {
         type: 'string',
@@ -84,7 +84,13 @@ export class GPT5CodexTool extends Tool {
       enable_web_search: { type: 'boolean', description: 'Enable model-side web search via -c tools.web_search=true', default: false },
       save_to_file: { type: 'boolean', description: 'Save final output to gpt5_docs', default: true },
       display_in_chat: { type: 'boolean', description: 'Return the content inline in chat', default: true },
-      timeout_sec: { type: 'number', description: 'Timeout for Codex process in seconds', default: 300 }
+      timeout_sec: {
+        type: 'number',
+        description: 'Timeout for Codex process in seconds (default 300; auto-extended when reasoning is high)',
+        minimum: 60,
+        maximum: 1800,
+        default: 300
+      }
     },
     required: ['task'],
     additionalProperties: false
@@ -141,7 +147,7 @@ export class GPT5CodexTool extends Tool {
       `## 🤖 GPT-5 Codex Task Completed`,
       '',
       `**Task**: ${task}`,
-      `**Model**: ${meta.model || 'gpt-5'}`,
+      `**Model**: ${meta.model || 'gpt-5-codex'}`,
       `**Mode**: ${meta.editMode}`,
       `**Execution Time**: ${(meta.execMs/1000).toFixed(1)}s`,
       '',
@@ -160,7 +166,7 @@ export class GPT5CodexTool extends Tool {
     const start = Date.now();
     const {
       task,
-      model = 'gpt-5',
+      model = 'gpt-5-codex',
       profile,
       reasoning_effort = 'medium',
       verbosity,
@@ -171,10 +177,12 @@ export class GPT5CodexTool extends Tool {
       enable_web_search = false,
       save_to_file = true,
       display_in_chat = true,
-      timeout_sec = 300
+      timeout_sec
     } = args;
 
     try {
+      const effectiveTimeoutSec = Math.min(1800, Math.max(60, timeout_sec ?? (reasoning_effort === 'high' ? 600 : 300)));
+
       // Build the full prompt with inlined text files
       let prompt = task;
 
@@ -302,7 +310,7 @@ export class GPT5CodexTool extends Tool {
         const t = setTimeout(() => {
           proc.kill('SIGKILL');
           resolve(-1);
-        }, Math.max(1, timeout_sec) * 1000);
+        }, Math.max(1, effectiveTimeoutSec) * 1000);
         proc.on('error', (e) => { clearTimeout(t); reject(e); });
         proc.on('close', (code) => { clearTimeout(t); resolve(code ?? 0); });
       });
@@ -328,11 +336,12 @@ export class GPT5CodexTool extends Tool {
         `**Task**: ${task}\n`+
         `**Model**: ${model}\n`+
         `**Mode**: ${edit_mode}\n`+
+        `**Timeout Budget**: ${effectiveTimeoutSec}s\n`+
         `**Execution Time**: ${(execMs/1000).toFixed(1)}s\n\n`;
 
       let body: string;
       if (exitCode === -1) {
-        body = `### ⏱️ Timeout\nProcess exceeded ${Math.max(1, timeout_sec)}s and was terminated.\n\n${stderr ? 'Stderr:\n'+stderr : ''}\n\n`;
+        body = `### ⏱️ Timeout\nProcess exceeded ${Math.max(1, effectiveTimeoutSec)}s and was terminated.\n\n${stderr ? 'Stderr:\n'+stderr : ''}\n\n`;
       } else if (finalOutput && finalOutput.length > 0) {
         body = `### 📝 Result\n${finalOutput}\n\n`;
       } else {
@@ -358,6 +367,7 @@ export class GPT5CodexTool extends Tool {
           '✅ Task completed successfully',
           `Model: ${model}`,
           `Execution: ${(execMs/1000).toFixed(1)}s`,
+          `Timeout Budget: ${effectiveTimeoutSec}s`,
           `Mode: ${edit_mode}`
         ];
         if (fileInfo) {
@@ -378,6 +388,7 @@ export class GPT5CodexTool extends Tool {
           edit_mode,
           exit_code: exitCode,
           execution_time_ms: execMs,
+          timeout_sec: effectiveTimeoutSec,
         }
       };
 
