@@ -24,6 +24,8 @@ interface GPT5AgentArgs {
   max_iterations?: number;
   show_preambles?: boolean;
   show_reasoning_summary?: boolean;
+  max_execution_time_seconds?: number;
+  tool_timeout_seconds?: number;
   
   // Optional Context
   system_prompt?: string;
@@ -131,6 +133,18 @@ export class GPT5AgentTool extends Tool {
         minimum: 1,
         maximum: 20,
         default: 10
+      },
+      max_execution_time_seconds: {
+        type: 'number',
+        description: 'Maximum wall-clock execution time for the agent (defaults scale with reasoning effort)',
+        minimum: 30,
+        maximum: 1800
+      },
+      tool_timeout_seconds: {
+        type: 'number',
+        description: 'Per-tool execution timeout (defaults scale with reasoning effort)',
+        minimum: 5,
+        maximum: 300
       },
       show_preambles: {
         type: 'boolean',
@@ -485,7 +499,9 @@ export class GPT5AgentTool extends Tool {
         reasoning_effort = 'medium',
         verbosity = 'medium',
         model = 'gpt-5',
-        max_iterations = 10,
+        max_iterations,
+        max_execution_time_seconds,
+        tool_timeout_seconds,
         show_preambles = true,
         show_reasoning_summary = true,
         context: taskContext,
@@ -494,6 +510,25 @@ export class GPT5AgentTool extends Tool {
         display_in_chat = true
       } = args;
       
+      const reasoningDefaults: Record<'minimal' | 'low' | 'medium' | 'high', {
+        maxIterations: number;
+        maxExecutionSeconds: number;
+        toolTimeoutSeconds: number;
+      }> = {
+        minimal: { maxIterations: 6, maxExecutionSeconds: 120, toolTimeoutSeconds: 20 },
+        low: { maxIterations: 8, maxExecutionSeconds: 180, toolTimeoutSeconds: 30 },
+        medium: { maxIterations: 10, maxExecutionSeconds: 240, toolTimeoutSeconds: 45 },
+        high: { maxIterations: 12, maxExecutionSeconds: 420, toolTimeoutSeconds: 60 }
+      };
+
+      const defaults = reasoningDefaults[reasoning_effort];
+
+      const effectiveMaxIterations = Math.min(20, Math.max(1, max_iterations ?? defaults.maxIterations));
+      const effectiveMaxExecutionSeconds = Math.min(1800, Math.max(30, max_execution_time_seconds ?? defaults.maxExecutionSeconds));
+      const effectiveToolTimeoutMs = Math.max(5000, Math.min(300000, (tool_timeout_seconds ?? defaults.toolTimeoutSeconds) * 1000));
+
+      const overallDeadline = Date.now() + effectiveMaxExecutionSeconds * 1000;
+
       // Build initial input to estimate token count for adaptive reasoning effort
       const systemPrompt = this.buildSystemPrompt(args);
       
@@ -633,8 +668,17 @@ export class GPT5AgentTool extends Tool {
       let reasoningSummary = '';
       
       // Agent loop
-      while (iterations < max_iterations) {
+      while (iterations < effectiveMaxIterations) {
         iterations++;
+
+        if (Date.now() > overallDeadline) {
+          return {
+            tool_call_id: `agent_timeout_${Date.now()}`,
+            output: '',
+            error: `Agent exceeded maximum execution time of ${effectiveMaxExecutionSeconds}s`,
+            status: 'timeout'
+          };
+        }
         
         // Prepare request
         const request: ResponsesAPIRequest = iterations === 1 ? initialRequest : {
@@ -762,7 +806,7 @@ export class GPT5AgentTool extends Tool {
           const toolResult = await globalToolRegistry.executeTool(
             call.name,
             toolArgs,
-            context
+            { ...context, timeout: effectiveToolTimeoutMs }
           );
           
           // Record tool call
@@ -783,7 +827,7 @@ export class GPT5AgentTool extends Tool {
         }
         
         // Set up next iteration with tool outputs
-        if (toolOutputs.length > 0 && iterations < max_iterations) {
+        if (toolOutputs.length > 0 && iterations < effectiveMaxIterations) {
           request.input = toolOutputs;
         } else if (toolOutputs.length > 0) {
           break;
@@ -814,6 +858,9 @@ export class GPT5AgentTool extends Tool {
       parts.push(`**Execution Time**: ${((Date.now() - startTime) / 1000).toFixed(1)}s\n`);
       parts.push(`**Reasoning Effort**: ${adaptiveReasoningEffort}\n`);
       parts.push(`**Max Output Tokens**: ${maxOutputTokens.toLocaleString()}${quality_over_cost ? ' (quality mode)' : ''}\n\n`);
+      parts.push(`**Max Iterations Allowed**: ${effectiveMaxIterations}\n`);
+      parts.push(`**Time Budget**: ${effectiveMaxExecutionSeconds}s\n`);
+      parts.push(`**Tool Timeout**: ${(effectiveToolTimeoutMs / 1000).toFixed(0)}s\n\n`);
       
       // Status updates (limited)
       if (statusUpdates.length > 0 && show_preambles) {
@@ -948,7 +995,10 @@ export class GPT5AgentTool extends Tool {
           task,
           model,
           iterations,
+          max_iterations_allowed: effectiveMaxIterations,
           tool_calls: toolCallRecords.length,
+          max_execution_time_seconds: effectiveMaxExecutionSeconds,
+          tool_timeout_ms: effectiveToolTimeoutMs,
           execution_time_ms: Date.now() - startTime,
           tokens: {
             input: totalInputTokens,
