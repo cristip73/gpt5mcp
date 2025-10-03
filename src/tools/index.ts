@@ -37,7 +37,7 @@ const ACTIVE_TOOLS = {
   list_functions: false,
   execute_custom_function: false,
   code_interpreter: false,
-  image_generation: true,
+  image_generation: false,
   gpt5_agent: true,
   gpt5_codex: true,
 } as const;
