@@ -82,7 +82,7 @@ export class GPT5CodexTool extends Tool {
       },
       images: { type: 'array', items: { type: 'string' }, description: 'Image paths to pass with -i' },
       enable_web_search: { type: 'boolean', description: 'Enable model-side web search via -c tools.web_search=true', default: false },
-      save_to_file: { type: 'boolean', description: 'Save final output to gpt5_docs', default: true },
+      save_to_file: { type: 'boolean', description: 'Save final output to _gpt5_docs', default: true },
       display_in_chat: { type: 'boolean', description: 'Return the content inline in chat', default: true },
       timeout_sec: {
         type: 'number',
@@ -136,7 +136,7 @@ export class GPT5CodexTool extends Tool {
   }
 
   private async saveOutput(task: string, output: string, meta: { model?: string; execMs: number; editMode: string; }): Promise<{ filePath: string; fileSize: number }> {
-    const dir = path.join(process.cwd(), 'gpt5_docs');
+    const dir = path.join(process.cwd(), '_gpt5_docs');
     await fs.mkdir(dir, { recursive: true });
     const slug = task.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60);
     const now = new Date();
@@ -234,9 +234,9 @@ export class GPT5CodexTool extends Tool {
       // Images will be added to exec subcommand, not global
 
       // Exec subcommand and last message capture
-      // If save_to_file is requested, capture the last message directly under gpt5_docs
+      // If save_to_file is requested, capture the last message directly under _gpt5_docs
       // to avoid writing to temp dirs.
-      const outDir = path.join(process.cwd(), 'gpt5_docs');
+      const outDir = path.join(process.cwd(), '_gpt5_docs');
       if (save_to_file) {
         try { await fs.mkdir(outDir, { recursive: true }); } catch {}
       }
