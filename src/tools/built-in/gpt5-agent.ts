@@ -175,7 +175,7 @@ export class GPT5AgentTool extends Tool {
       },
       save_to_file: {
         type: 'boolean',
-        description: 'Save output to markdown file in gpt5_docs folder',
+        description: 'Save output to markdown file in _gpt5_docs folder',
         default: true
       },
       display_in_chat: {
@@ -371,7 +371,7 @@ export class GPT5AgentTool extends Tool {
     }
   ): Promise<{ filePath: string; fileSize: number }> {
     // Create directory if needed
-    const docsDir = path.join(process.cwd(), 'gpt5_docs');
+    const docsDir = path.join(process.cwd(), '_gpt5_docs');
     await fs.mkdir(docsDir, { recursive: true });
     
     // Generate filename
