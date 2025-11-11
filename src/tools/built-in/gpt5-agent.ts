@@ -42,6 +42,7 @@ interface GPT5AgentArgs {
   save_to_file?: boolean;
   save_format?: 'standard' | 'clean';
   output_folder?: string;
+  output_filename?: string;
   display_in_chat?: boolean;
   
   // Optional File Input
@@ -191,6 +192,10 @@ export class GPT5AgentTool extends Tool {
         type: 'string',
         description: 'Custom output folder path (default: _gpt5_docs). Supports relative paths, absolute paths, and tilde (~/) expansion'
       },
+      output_filename: {
+        type: 'string',
+        description: 'Custom output filename (default: auto-generated with timestamp). Extension .md added if not specified.'
+      },
       display_in_chat: {
         type: 'boolean',
         description: 'Display full output in chat response',
@@ -293,6 +298,26 @@ export class GPT5AgentTool extends Tool {
 
     // Relative to cwd
     return path.join(process.cwd(), trimmed);
+  }
+
+  private sanitizeFilename(filename: string): string {
+    // Remove path separators and traversal attempts
+    let safe = filename.replace(/[/\\]/g, '').replace(/\.\./g, '');
+
+    // Trim whitespace
+    safe = safe.trim();
+
+    // If empty after sanitization, return a default
+    if (!safe) {
+      safe = 'output';
+    }
+
+    // Add .md extension if no extension present
+    if (!path.extname(safe)) {
+      safe += '.md';
+    }
+
+    return safe;
   }
 
   private isImageFile(filePath: string): boolean {
@@ -405,25 +430,37 @@ export class GPT5AgentTool extends Tool {
       tokens: { input: number; output: number; reasoning: number };
     },
     outputDir: string,
-    saveFormat: 'standard' | 'clean' = 'standard'
+    saveFormat: 'standard' | 'clean' = 'standard',
+    customFilename?: string
   ): Promise<{ filePath: string; fileSize: number }> {
     // Create directory if needed
     await fs.mkdir(outputDir, { recursive: true });
 
-    // Generate filename
+    // Get current timestamp (used for both filename generation and metadata)
     const now = new Date();
-    const timestamp = now.toISOString()
-      .replace(/[-:T]/g, '')
-      .replace(/\.\d{3}Z/, '')
-      .slice(0, 15);
 
-    const slug = task.toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, '')
-      .trim()
-      .replace(/\s+/g, '-')
-      .slice(0, 30);
+    // Determine filename
+    let filename: string;
 
-    const filename = `agent_${timestamp}_${slug}.md`;
+    if (customFilename) {
+      // Use custom filename with sanitization
+      filename = this.sanitizeFilename(customFilename);
+    } else {
+      // Generate auto filename
+      const timestamp = now.toISOString()
+        .replace(/[-:T]/g, '')
+        .replace(/\.\d{3}Z/, '')
+        .slice(0, 15);
+
+      const slug = task.toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .slice(0, 30);
+
+      filename = `agent_${timestamp}_${slug}.md`;
+    }
+
     const filePath = path.join(outputDir, filename);
 
     // Build file content based on format
@@ -996,7 +1033,8 @@ export class GPT5AgentTool extends Tool {
               }
             },
             outputDir,
-            saveFormat
+            saveFormat,
+            args.output_filename
           );
         } catch (err) {
           console.error('Failed to save output to file:', err);
