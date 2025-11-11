@@ -109,7 +109,7 @@ export class GPT5AgentTool extends Tool {
       model: {
         type: 'string',
         enum: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5-chat-latest'],
-        description: 'Model variant to use',
+        description: 'Model variant to use. Note: gpt-5-chat-latest is non-reasoning and only supports verbosity: medium',
         default: 'gpt-5'
       },
       enable_web_search: {
@@ -494,7 +494,7 @@ export class GPT5AgentTool extends Tool {
   async execute(args: GPT5AgentArgs, context: ToolExecutionContext): Promise<ToolResult> {
     try {
       const startTime = Date.now();
-      const {
+      let {
         task,
         reasoning_effort = 'medium',
         verbosity = 'medium',
@@ -509,6 +509,11 @@ export class GPT5AgentTool extends Tool {
         save_to_file = true,
         display_in_chat = true
       } = args;
+
+      // Silent override: gpt-5-chat-latest only supports verbosity: medium
+      if (model === 'gpt-5-chat-latest' && verbosity !== 'medium') {
+        verbosity = 'medium';
+      }
       
       const reasoningDefaults: Record<'minimal' | 'low' | 'medium' | 'high', {
         maxIterations: number;
