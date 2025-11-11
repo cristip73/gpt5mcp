@@ -634,7 +634,10 @@ export class GPT5AgentTool extends Tool {
       
       // Build tools array
       const tools = this.buildToolsArray(args);
-      
+
+      // Check if model supports reasoning (non-reasoning models like gpt-5-chat-latest don't)
+      const isReasoningModel = model !== 'gpt-5-chat-latest';
+
       // Initial request to Responses API with multimodal content support
       const initialRequest: ResponsesAPIRequest = {
         model,
@@ -643,10 +646,12 @@ export class GPT5AgentTool extends Tool {
           { role: 'user', content: userContent }  // Mixed text/image content array
         ],
         tools: tools.length > 0 ? tools : undefined,
-        reasoning: {
-          effort: adaptiveReasoningEffort,
-          summary: show_reasoning_summary ? 'auto' : undefined
-        },
+        ...(isReasoningModel && {
+          reasoning: {
+            effort: adaptiveReasoningEffort,
+            summary: show_reasoning_summary ? 'auto' : undefined
+          }
+        }),
         text: {
           verbosity
         },
@@ -685,10 +690,12 @@ export class GPT5AgentTool extends Tool {
           model,
           input: [], // Will be populated with tool outputs
           previous_response_id: previousResponseId,
-          reasoning: {
-            effort: adaptiveReasoningEffort,
-            summary: show_reasoning_summary ? 'auto' : undefined
-          },
+          ...(isReasoningModel && {
+            reasoning: {
+              effort: adaptiveReasoningEffort,
+              summary: show_reasoning_summary ? 'auto' : undefined
+            }
+          }),
           text: {
             verbosity
           },
