@@ -34,6 +34,7 @@ interface GPT5CodexArgs {
   save_to_file?: boolean;
   save_format?: 'standard' | 'clean';
   output_folder?: string;
+  output_filename?: string;
   display_in_chat?: boolean;
 
   // Exec
@@ -92,6 +93,7 @@ export class GPT5CodexTool extends Tool {
         default: 'standard'
       },
       output_folder: { type: 'string', description: 'Custom output folder path (default: _gpt5_docs). Supports relative paths, absolute paths, and tilde (~/) expansion' },
+      output_filename: { type: 'string', description: 'Custom output filename (default: auto-generated with timestamp). Extension .md added if not specified.' },
       display_in_chat: { type: 'boolean', description: 'Return the content inline in chat', default: true },
       timeout_sec: {
         type: 'number',
@@ -166,11 +168,44 @@ export class GPT5CodexTool extends Tool {
     return path.join(process.cwd(), trimmed);
   }
 
-  private async saveOutput(task: string, output: string, meta: { model?: string; execMs: number; editMode: string; }, outputDir: string, saveFormat: 'standard' | 'clean' = 'standard'): Promise<{ filePath: string; fileSize: number }> {
+  private sanitizeFilename(filename: string): string {
+    // Remove path separators and traversal attempts
+    let safe = filename.replace(/[/\\]/g, '').replace(/\.\./g, '');
+
+    // Trim whitespace
+    safe = safe.trim();
+
+    // If empty after sanitization, return a default
+    if (!safe) {
+      safe = 'output';
+    }
+
+    // Add .md extension if no extension present
+    if (!path.extname(safe)) {
+      safe += '.md';
+    }
+
+    return safe;
+  }
+
+  private async saveOutput(task: string, output: string, meta: { model?: string; execMs: number; editMode: string; }, outputDir: string, saveFormat: 'standard' | 'clean' = 'standard', customFilename?: string): Promise<{ filePath: string; fileSize: number }> {
     await fs.mkdir(outputDir, { recursive: true });
-    const slug = task.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60);
+
+    // Get current timestamp (used for both filename generation and metadata)
     const now = new Date();
-    const name = `agent_${now.toISOString().replace(/[:.]/g, '-').slice(0,19)}_${slug || 'task'}.md`;
+
+    // Determine filename
+    let name: string;
+
+    if (customFilename) {
+      // Use custom filename with sanitization
+      name = this.sanitizeFilename(customFilename);
+    } else {
+      // Generate auto filename
+      const slug = task.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60);
+      name = `agent_${now.toISOString().replace(/[:.]/g, '-').slice(0,19)}_${slug || 'task'}.md`;
+    }
+
     const filePath = path.join(outputDir, name);
 
     let content: string;
@@ -393,7 +428,7 @@ export class GPT5CodexTool extends Tool {
       if (save_to_file) {
         try {
           const saveFormat = args.save_format || 'standard';
-          fileInfo = await this.saveOutput(task, finalOutput || '(empty)', { model, execMs, editMode: edit_mode }, outDir, saveFormat);
+          fileInfo = await this.saveOutput(task, finalOutput || '(empty)', { model, execMs, editMode: edit_mode }, outDir, saveFormat, args.output_filename);
           result += `📄 Saved to: ${fileInfo.filePath}\n`;
         } catch (e) {
           // keep going
