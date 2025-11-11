@@ -32,6 +32,7 @@ interface GPT5CodexArgs {
 
   // Output controls
   save_to_file?: boolean;
+  output_folder?: string;
   display_in_chat?: boolean;
 
   // Exec
@@ -82,7 +83,8 @@ export class GPT5CodexTool extends Tool {
       },
       images: { type: 'array', items: { type: 'string' }, description: 'Image paths to pass with -i' },
       enable_web_search: { type: 'boolean', description: 'Enable model-side web search via -c tools.web_search=true', default: false },
-      save_to_file: { type: 'boolean', description: 'Save final output to _gpt5_docs', default: true },
+      save_to_file: { type: 'boolean', description: 'Save final output to file', default: true },
+      output_folder: { type: 'string', description: 'Custom output folder path (default: _gpt5_docs). Supports relative paths, absolute paths, and tilde (~/) expansion' },
       display_in_chat: { type: 'boolean', description: 'Return the content inline in chat', default: true },
       timeout_sec: {
         type: 'number',
@@ -135,13 +137,34 @@ export class GPT5CodexTool extends Tool {
     return `model_reasoning_effort=${mapped}`;
   }
 
-  private async saveOutput(task: string, output: string, meta: { model?: string; execMs: number; editMode: string; }): Promise<{ filePath: string; fileSize: number }> {
-    const dir = path.join(process.cwd(), '_gpt5_docs');
-    await fs.mkdir(dir, { recursive: true });
+  private resolveOutputDirectory(outputFolder: string | undefined): string {
+    // Default
+    if (!outputFolder || outputFolder.trim() === '') {
+      return path.join(process.cwd(), '_gpt5_docs');
+    }
+
+    const trimmed = outputFolder.trim();
+
+    // Absolute path
+    if (path.isAbsolute(trimmed)) {
+      return trimmed;
+    }
+
+    // Tilde expansion
+    if (trimmed.startsWith('~/')) {
+      return path.join(os.homedir(), trimmed.slice(2));
+    }
+
+    // Relative to cwd
+    return path.join(process.cwd(), trimmed);
+  }
+
+  private async saveOutput(task: string, output: string, meta: { model?: string; execMs: number; editMode: string; }, outputDir: string): Promise<{ filePath: string; fileSize: number }> {
+    await fs.mkdir(outputDir, { recursive: true });
     const slug = task.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60);
     const now = new Date();
     const name = `agent_${now.toISOString().replace(/[:.]/g, '-').slice(0,19)}_${slug || 'task'}.md`;
-    const filePath = path.join(dir, name);
+    const filePath = path.join(outputDir, name);
 
     const content = [
       `## 🤖 GPT-5 Codex Task Completed`,
@@ -234,9 +257,9 @@ export class GPT5CodexTool extends Tool {
       // Images will be added to exec subcommand, not global
 
       // Exec subcommand and last message capture
-      // If save_to_file is requested, capture the last message directly under _gpt5_docs
+      // If save_to_file is requested, capture the last message directly under the output directory
       // to avoid writing to temp dirs.
-      const outDir = path.join(process.cwd(), '_gpt5_docs');
+      const outDir = this.resolveOutputDirectory(args.output_folder);
       if (save_to_file) {
         try { await fs.mkdir(outDir, { recursive: true }); } catch {}
       }
@@ -354,7 +377,7 @@ export class GPT5CodexTool extends Tool {
       let fileInfo: { filePath: string; fileSize: number } | null = null;
       if (save_to_file) {
         try {
-          fileInfo = await this.saveOutput(task, finalOutput || '(empty)', { model, execMs, editMode: edit_mode });
+          fileInfo = await this.saveOutput(task, finalOutput || '(empty)', { model, execMs, editMode: edit_mode }, outDir);
           result += `📄 Saved to: ${fileInfo.filePath}\n`;
         } catch (e) {
           // keep going
