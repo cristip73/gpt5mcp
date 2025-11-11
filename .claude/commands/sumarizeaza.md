@@ -12,3 +12,4 @@ Setări obligatorii:
 - display_in_chat: false
 - save_to_file: true
 - save_format: "clean"
+- output_filename: extrage numele fișierului din {{arg1}} (doar basename, fără path) și adaugă "_summary" înainte de extensie (ex: "file.md" → "file_summary.md")
