@@ -509,7 +509,17 @@ export class GPT5AgentTool extends Tool {
         save_to_file = true,
         display_in_chat = true
       } = args;
-      
+
+      // Validate verbosity for gpt-5-chat-latest
+      if (model === 'gpt-5-chat-latest' && verbosity === 'low') {
+        return {
+          tool_call_id: `agent_error_${Date.now()}`,
+          output: '',
+          error: `gpt-5-chat-latest does not support verbosity: low. Use 'medium' or 'high' instead.`,
+          status: 'error'
+        };
+      }
+
       const reasoningDefaults: Record<'minimal' | 'low' | 'medium' | 'high', {
         maxIterations: number;
         maxExecutionSeconds: number;
