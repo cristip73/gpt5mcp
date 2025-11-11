@@ -40,6 +40,7 @@ interface GPT5AgentArgs {
   
   // Optional File Output Settings
   save_to_file?: boolean;
+  save_format?: 'standard' | 'clean';
   output_folder?: string;
   display_in_chat?: boolean;
   
@@ -179,6 +180,12 @@ export class GPT5AgentTool extends Tool {
         type: 'boolean',
         description: 'Save output to markdown file',
         default: true
+      },
+      save_format: {
+        type: 'string',
+        enum: ['standard', 'clean'],
+        description: 'Output format: standard (with metadata) or clean (raw output only)',
+        default: 'standard'
       },
       output_folder: {
         type: 'string',
@@ -397,60 +404,69 @@ export class GPT5AgentTool extends Tool {
       iterations: number;
       tokens: { input: number; output: number; reasoning: number };
     },
-    outputDir: string
+    outputDir: string,
+    saveFormat: 'standard' | 'clean' = 'standard'
   ): Promise<{ filePath: string; fileSize: number }> {
     // Create directory if needed
     await fs.mkdir(outputDir, { recursive: true });
-    
+
     // Generate filename
     const now = new Date();
     const timestamp = now.toISOString()
       .replace(/[-:T]/g, '')
       .replace(/\.\d{3}Z/, '')
       .slice(0, 15);
-    
+
     const slug = task.toLowerCase()
       .replace(/[^a-z0-9\s-]/g, '')
       .trim()
       .replace(/\s+/g, '-')
       .slice(0, 30);
-    
+
     const filename = `agent_${timestamp}_${slug}.md`;
     const filePath = path.join(outputDir, filename);
-    
-    // Build file content
-    const contentParts = [
-      `# Task:`,
-      task,
-      ''
-    ];
-    
-    if (summary) {
-      contentParts.push('## Summary');
-      contentParts.push(summary);
+
+    // Build file content based on format
+    let content: string;
+
+    if (saveFormat === 'clean') {
+      // Clean format: just the raw output, nothing else
+      content = output;
+    } else {
+      // Standard format: with all metadata
+      const contentParts = [
+        `# Task:`,
+        task,
+        ''
+      ];
+
+      if (summary) {
+        contentParts.push('## Summary');
+        contentParts.push(summary);
+        contentParts.push('');
+      }
+
+      contentParts.push('## Full Output');
+      contentParts.push(output);
       contentParts.push('');
+      contentParts.push('---');
+
+      const inputTokens = `Input: ${(metadata.tokens.input/1000).toFixed(1)}k`;
+      const outputTokens = `Output: ${(metadata.tokens.output/1000).toFixed(1)}k`;
+      const reasoningTokens = `Reasoning: ${(metadata.tokens.reasoning/1000).toFixed(1)}k`;
+      const tokenInfo = `${inputTokens} | ${outputTokens} | ${reasoningTokens}`;
+
+      const executionInfo = `Time: ${metadata.execution_time.toFixed(1)}s | Iterations: ${metadata.iterations}`;
+
+      contentParts.push(`*Generated: ${now.toISOString()} | Response ID: ${metadata.response_id} | Model: ${metadata.model} | ${executionInfo} | ${tokenInfo}*`);
+
+      content = contentParts.join('\n');
     }
-    
-    contentParts.push('## Full Output');
-    contentParts.push(output);
-    contentParts.push('');
-    contentParts.push('---');
-    
-    const inputTokens = `Input: ${(metadata.tokens.input/1000).toFixed(1)}k`;
-    const outputTokens = `Output: ${(metadata.tokens.output/1000).toFixed(1)}k`;
-    const reasoningTokens = `Reasoning: ${(metadata.tokens.reasoning/1000).toFixed(1)}k`;
-    const tokenInfo = `${inputTokens} | ${outputTokens} | ${reasoningTokens}`;
-    
-    const executionInfo = `Time: ${metadata.execution_time.toFixed(1)}s | Iterations: ${metadata.iterations}`;
-    
-    contentParts.push(`*Generated: ${now.toISOString()} | Response ID: ${metadata.response_id} | Model: ${metadata.model} | ${executionInfo} | ${tokenInfo}*`);
-    
-    const content = contentParts.join('\n');
-    
+
     // Write file
     await fs.writeFile(filePath, content, 'utf8');
     const stats = await fs.stat(filePath);
-    
+
     return {
       filePath: path.relative(process.cwd(), filePath),
       fileSize: stats.size
@@ -963,6 +979,7 @@ export class GPT5AgentTool extends Tool {
       if (save_to_file) {
         try {
           const outputDir = this.resolveOutputDirectory(args.output_folder);
+          const saveFormat = args.save_format || 'standard';
           fileInfo = await this.saveAgentOutput(
             task,
             outputForFile,
@@ -978,7 +995,8 @@ export class GPT5AgentTool extends Tool {
                 reasoning: totalReasoningTokens
               }
             },
-            outputDir
+            outputDir,
+            saveFormat
           );
         } catch (err) {
           console.error('Failed to save output to file:', err);
