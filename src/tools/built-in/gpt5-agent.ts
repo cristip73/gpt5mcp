@@ -13,7 +13,7 @@ interface GPT5AgentArgs {
   verbosity?: 'low' | 'medium' | 'high';
   
   // Optional Model Selection
-  model?: 'gpt-5' | 'gpt-5-mini' | 'gpt-5-nano';
+  model?: 'gpt-5' | 'gpt-5-mini' | 'gpt-5-nano' | 'gpt-5-chat-latest';
   
   // Optional Tool Configuration
   enable_web_search?: boolean;
@@ -108,7 +108,7 @@ export class GPT5AgentTool extends Tool {
       },
       model: {
         type: 'string',
-        enum: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano'],
+        enum: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5-chat-latest'],
         description: 'Model variant to use',
         default: 'gpt-5'
       },
