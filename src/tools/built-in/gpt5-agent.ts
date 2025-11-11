@@ -3,6 +3,7 @@ import fetch from 'node-fetch';
 import { globalToolRegistry } from '../registry.js';
 import { promises as fs } from 'fs';
 import path from 'path';
+import os from 'os';
 
 interface GPT5AgentArgs {
   // Required
@@ -39,6 +40,7 @@ interface GPT5AgentArgs {
   
   // Optional File Output Settings
   save_to_file?: boolean;
+  output_folder?: string;
   display_in_chat?: boolean;
   
   // Optional File Input
@@ -175,8 +177,12 @@ export class GPT5AgentTool extends Tool {
       },
       save_to_file: {
         type: 'boolean',
-        description: 'Save output to markdown file in _gpt5_docs folder',
+        description: 'Save output to markdown file',
         default: true
+      },
+      output_folder: {
+        type: 'string',
+        description: 'Custom output folder path (default: _gpt5_docs). Supports relative paths, absolute paths, and tilde (~/) expansion'
       },
       display_in_chat: {
         type: 'boolean',
@@ -248,16 +254,38 @@ export class GPT5AgentTool extends Tool {
     let prompt = "You are an autonomous agent. Continue working on the task until it is complete. ";
     prompt += "Use available tools as needed to accomplish your goal. ";
     prompt += "Be persistent and thorough, but also efficient. ";
-    
+
     if (args.show_preambles) {
       prompt += "Provide brief status updates between tool calls. ";
     }
-    
+
     if (args.system_prompt) {
       prompt += "\n\nAdditional instructions: " + args.system_prompt;
     }
-    
+
     return prompt;
+  }
+
+  private resolveOutputDirectory(outputFolder: string | undefined): string {
+    // Default
+    if (!outputFolder || outputFolder.trim() === '') {
+      return path.join(process.cwd(), '_gpt5_docs');
+    }
+
+    const trimmed = outputFolder.trim();
+
+    // Absolute path
+    if (path.isAbsolute(trimmed)) {
+      return trimmed;
+    }
+
+    // Tilde expansion
+    if (trimmed.startsWith('~/')) {
+      return path.join(os.homedir(), trimmed.slice(2));
+    }
+
+    // Relative to cwd
+    return path.join(process.cwd(), trimmed);
   }
 
   private isImageFile(filePath: string): boolean {
@@ -368,11 +396,11 @@ export class GPT5AgentTool extends Tool {
       execution_time: number;
       iterations: number;
       tokens: { input: number; output: number; reasoning: number };
-    }
+    },
+    outputDir: string
   ): Promise<{ filePath: string; fileSize: number }> {
     // Create directory if needed
-    const docsDir = path.join(process.cwd(), '_gpt5_docs');
-    await fs.mkdir(docsDir, { recursive: true });
+    await fs.mkdir(outputDir, { recursive: true });
     
     // Generate filename
     const now = new Date();
@@ -388,7 +416,7 @@ export class GPT5AgentTool extends Tool {
       .slice(0, 30);
     
     const filename = `agent_${timestamp}_${slug}.md`;
-    const filePath = path.join(docsDir, filename);
+    const filePath = path.join(outputDir, filename);
     
     // Build file content
     const contentParts = [
@@ -934,6 +962,7 @@ export class GPT5AgentTool extends Tool {
       let fileInfo = null;
       if (save_to_file) {
         try {
+          const outputDir = this.resolveOutputDirectory(args.output_folder);
           fileInfo = await this.saveAgentOutput(
             task,
             outputForFile,
@@ -943,12 +972,13 @@ export class GPT5AgentTool extends Tool {
               model,
               execution_time: (Date.now() - startTime) / 1000,
               iterations,
-              tokens: { 
-                input: totalInputTokens, 
-                output: totalOutputTokens, 
-                reasoning: totalReasoningTokens 
+              tokens: {
+                input: totalInputTokens,
+                output: totalOutputTokens,
+                reasoning: totalReasoningTokens
               }
-            }
+            },
+            outputDir
           );
         } catch (err) {
           console.error('Failed to save output to file:', err);
