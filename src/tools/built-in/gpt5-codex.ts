@@ -32,6 +32,7 @@ interface GPT5CodexArgs {
 
   // Output controls
   save_to_file?: boolean;
+  save_format?: 'standard' | 'clean';
   output_folder?: string;
   display_in_chat?: boolean;
 
@@ -84,6 +85,12 @@ export class GPT5CodexTool extends Tool {
       images: { type: 'array', items: { type: 'string' }, description: 'Image paths to pass with -i' },
       enable_web_search: { type: 'boolean', description: 'Enable model-side web search via -c tools.web_search=true', default: false },
       save_to_file: { type: 'boolean', description: 'Save final output to file', default: true },
+      save_format: {
+        type: 'string',
+        enum: ['standard', 'clean'],
+        description: 'Output format: standard (with metadata) or clean (raw output only)',
+        default: 'standard'
+      },
       output_folder: { type: 'string', description: 'Custom output folder path (default: _gpt5_docs). Supports relative paths, absolute paths, and tilde (~/) expansion' },
       display_in_chat: { type: 'boolean', description: 'Return the content inline in chat', default: true },
       timeout_sec: {
@@ -159,26 +166,34 @@ export class GPT5CodexTool extends Tool {
     return path.join(process.cwd(), trimmed);
   }
 
-  private async saveOutput(task: string, output: string, meta: { model?: string; execMs: number; editMode: string; }, outputDir: string): Promise<{ filePath: string; fileSize: number }> {
+  private async saveOutput(task: string, output: string, meta: { model?: string; execMs: number; editMode: string; }, outputDir: string, saveFormat: 'standard' | 'clean' = 'standard'): Promise<{ filePath: string; fileSize: number }> {
     await fs.mkdir(outputDir, { recursive: true });
     const slug = task.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60);
     const now = new Date();
     const name = `agent_${now.toISOString().replace(/[:.]/g, '-').slice(0,19)}_${slug || 'task'}.md`;
     const filePath = path.join(outputDir, name);
 
-    const content = [
-      `## 🤖 GPT-5 Codex Task Completed`,
-      '',
-      `**Task**: ${task}`,
-      `**Model**: ${meta.model || 'gpt-5-codex'}`,
-      `**Mode**: ${meta.editMode}`,
-      `**Execution Time**: ${(meta.execMs/1000).toFixed(1)}s`,
-      '',
-      `### 📝 Result`,
-      output.trim() || '(empty)',
-      '',
-      `*Generated: ${now.toISOString()}*`
-    ].join('\n');
+    let content: string;
+
+    if (saveFormat === 'clean') {
+      // Clean format: just the raw output
+      content = output.trim() || '';
+    } else {
+      // Standard format: with all metadata
+      content = [
+        `## 🤖 GPT-5 Codex Task Completed`,
+        '',
+        `**Task**: ${task}`,
+        `**Model**: ${meta.model || 'gpt-5-codex'}`,
+        `**Mode**: ${meta.editMode}`,
+        `**Execution Time**: ${(meta.execMs/1000).toFixed(1)}s`,
+        '',
+        `### 📝 Result`,
+        output.trim() || '(empty)',
+        '',
+        `*Generated: ${now.toISOString()}*`
+      ].join('\n');
+    }
 
     await fs.writeFile(filePath, content, 'utf8');
     const stats = await fs.stat(filePath);
@@ -377,7 +392,8 @@ export class GPT5CodexTool extends Tool {
       let fileInfo: { filePath: string; fileSize: number } | null = null;
       if (save_to_file) {
         try {
-          fileInfo = await this.saveOutput(task, finalOutput || '(empty)', { model, execMs, editMode: edit_mode }, outDir);
+          const saveFormat = args.save_format || 'standard';
+          fileInfo = await this.saveOutput(task, finalOutput || '(empty)', { model, execMs, editMode: edit_mode }, outDir, saveFormat);
           result += `📄 Saved to: ${fileInfo.filePath}\n`;
         } catch (e) {
           // keep going
