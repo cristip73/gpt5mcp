@@ -11,3 +11,4 @@ Setări obligatorii:
 - reasoning_effort: "minimal"
 - display_in_chat: false
 - save_to_file: true
+- save_format: "clean"
