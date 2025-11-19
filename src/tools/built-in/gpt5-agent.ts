@@ -10,11 +10,11 @@ interface GPT5AgentArgs {
   task: string;
   
   // Optional Configuration
-  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
+  reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high';
   verbosity?: 'low' | 'medium' | 'high';
-  
+
   // Optional Model Selection
-  model?: 'gpt-5' | 'gpt-5-mini' | 'gpt-5-nano' | 'gpt-5-chat-latest';
+  model?: 'gpt-5' | 'gpt-5.1' | 'gpt-5-mini' | 'gpt-5-nano' | 'gpt-5.1-chat-latest';
   
   // Optional Tool Configuration
   enable_web_search?: boolean;
@@ -100,8 +100,8 @@ export class GPT5AgentTool extends Tool {
       },
       reasoning_effort: {
         type: 'string',
-        enum: ['minimal', 'low', 'medium', 'high'],
-        description: 'Reasoning depth: minimal (fast), low, medium (default), high (very slow & expensive - use only if explicitly requested)',
+        enum: ['none', 'minimal', 'low', 'medium', 'high'],
+        description: 'Reasoning depth: none (no reasoning, fast tool-calling), minimal (fast), low, medium (default), high (very slow & expensive - use only if explicitly requested)',
         default: 'medium'
       },
       verbosity: {
@@ -112,8 +112,8 @@ export class GPT5AgentTool extends Tool {
       },
       model: {
         type: 'string',
-        enum: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5-chat-latest'],
-        description: 'Model variant to use. Note: gpt-5-chat-latest is non-reasoning and only supports verbosity: medium',
+        enum: ['gpt-5', 'gpt-5.1', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5.1-chat-latest'],
+        description: 'Model variant to use. Note: gpt-5.1-chat-latest is non-reasoning and only supports verbosity: medium',
         default: 'gpt-5'
       },
       enable_web_search: {
@@ -339,15 +339,15 @@ export class GPT5AgentTool extends Tool {
   }
 
   private calculateOptimalReasoningEffort(
-    estimatedInputTokens: number, 
-    requestedEffort: 'minimal' | 'low' | 'medium' | 'high'
-  ): 'minimal' | 'low' | 'medium' | 'high' {
+    estimatedInputTokens: number,
+    requestedEffort: 'none' | 'minimal' | 'low' | 'medium' | 'high'
+  ): 'none' | 'minimal' | 'low' | 'medium' | 'high' {
     // Quality-first approach: respect user's requested reasoning effort
     // Only warn about potential overflow, don't reduce quality
     if (estimatedInputTokens > 200000 && requestedEffort === 'high') {
       console.warn(`⚠️  High reasoning effort requested with ${Math.round(estimatedInputTokens/1000)}k input tokens - may cause overflow`);
     }
-    
+
     return requestedEffort;  // Always use user's requested effort level
   }
 
@@ -577,7 +577,7 @@ export class GPT5AgentTool extends Tool {
       const startTime = Date.now();
       let {
         task,
-        reasoning_effort = 'medium',
+        reasoning_effort,
         verbosity = 'medium',
         model = 'gpt-5',
         max_iterations,
@@ -591,16 +591,22 @@ export class GPT5AgentTool extends Tool {
         display_in_chat = true
       } = args;
 
-      // Silent override: gpt-5-chat-latest only supports verbosity: medium
-      if (model === 'gpt-5-chat-latest' && verbosity !== 'medium') {
+      // Set default reasoning_effort
+      if (!reasoning_effort) {
+        reasoning_effort = 'medium';
+      }
+
+      // Silent override: gpt-5.1-chat-latest only supports verbosity: medium
+      if (model === 'gpt-5.1-chat-latest' && verbosity !== 'medium') {
         verbosity = 'medium';
       }
       
-      const reasoningDefaults: Record<'minimal' | 'low' | 'medium' | 'high', {
+      const reasoningDefaults: Record<'none' | 'minimal' | 'low' | 'medium' | 'high', {
         maxIterations: number;
         maxExecutionSeconds: number;
         toolTimeoutSeconds: number;
       }> = {
+        none: { maxIterations: 5, maxExecutionSeconds: 90, toolTimeoutSeconds: 15 },
         minimal: { maxIterations: 6, maxExecutionSeconds: 120, toolTimeoutSeconds: 20 },
         low: { maxIterations: 8, maxExecutionSeconds: 180, toolTimeoutSeconds: 30 },
         medium: { maxIterations: 10, maxExecutionSeconds: 240, toolTimeoutSeconds: 45 },
@@ -721,8 +727,8 @@ export class GPT5AgentTool extends Tool {
       // Build tools array
       const tools = this.buildToolsArray(args);
 
-      // Check if model supports reasoning (non-reasoning models like gpt-5-chat-latest don't)
-      const isReasoningModel = model !== 'gpt-5-chat-latest';
+      // Check if model supports reasoning (non-reasoning models like gpt-5.1-chat-latest don't, also reasoning_effort='none' means no reasoning)
+      const isReasoningModel = model !== 'gpt-5.1-chat-latest' && adaptiveReasoningEffort !== 'none';
 
       // Initial request to Responses API with multimodal content support
       const initialRequest: ResponsesAPIRequest = {

@@ -39,7 +39,7 @@ const ACTIVE_TOOLS = {
   code_interpreter: false,
   image_generation: false,
   gpt5_agent: true,
-  gpt5_codex: true,
+  gpt5_codex: false,
 } as const;
 
 // Utility function to register all built-in tools
