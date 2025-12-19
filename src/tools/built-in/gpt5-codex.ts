@@ -14,9 +14,9 @@ interface GPT5CodexArgs {
   task: string;
 
   // Optional Model/Config
-  model?: string; // e.g., gpt-5-codex, gpt-5-chat-latest
+  model?: string; // e.g., gpt-5.1-codex, gpt-5.1-codex-max, gpt-5.2
   profile?: string;
-  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
+  reasoning_effort?: 'low' | 'medium' | 'high' | 'extra_high';
   verbosity?: 'low' | 'medium' | 'high';
 
   // Permissions / Modes
@@ -43,19 +43,23 @@ interface GPT5CodexArgs {
 
 export class GPT5CodexTool extends Tool {
   name = 'gpt5_codex';
-  description = 'Runs Codex CLI exec jobs with GPT-5-Codex, applying configured profiles, reasoning, autonomy, and optional web search';
+  description = 'Runs Codex CLI exec jobs with GPT-5.1-Codex-Max (default), GPT-5.2, or other models. Supports reasoning levels: low, medium, high, extra_high';
   type = 'function' as const;
 
   parameters = {
     type: 'object',
     properties: {
       task: { type: 'string', description: 'Task prompt for Codex CLI exec' },
-      model: { type: 'string', description: 'Model id, e.g., gpt-5-codex, gpt-5-chat-latest', default: 'gpt-5-codex' },
+      model: {
+        type: 'string',
+        description: 'Model id (e.g., gpt-5.1-codex-max, gpt-5.2, gpt-5.1-codex, gpt-5.1-codex-mini, o3, o4-mini)',
+        default: 'gpt-5.1-codex-max'
+      },
       profile: { type: 'string', description: 'Codex CLI config profile' },
       reasoning_effort: {
         type: 'string',
-        enum: ['minimal', 'low', 'medium', 'high'],
-        description: 'Reasoning depth hint mapped to -c model_reasoning_effort',
+        enum: ['low', 'medium', 'high', 'extra_high'],
+        description: 'Reasoning depth: low, medium (default), high, extra_high (for gpt-5.1-codex-max/gpt-5.2)',
         default: 'medium'
       },
       verbosity: {
@@ -84,7 +88,7 @@ export class GPT5CodexTool extends Tool {
         description: 'Multiple input files'
       },
       images: { type: 'array', items: { type: 'string' }, description: 'Image paths to pass with -i' },
-      enable_web_search: { type: 'boolean', description: 'Enable model-side web search via -c tools.web_search=true', default: false },
+      enable_web_search: { type: 'boolean', description: 'Enable web search via --enable web_search_request', default: false },
       save_to_file: { type: 'boolean', description: 'Save final output to file', default: true },
       save_format: {
         type: 'string',
@@ -97,10 +101,10 @@ export class GPT5CodexTool extends Tool {
       display_in_chat: { type: 'boolean', description: 'Return the content inline in chat', default: true },
       timeout_sec: {
         type: 'number',
-        description: 'Timeout for Codex process in seconds (default 300; auto-extended when reasoning is high)',
+        description: 'Timeout in seconds (default: 375s, high: 750s, extra_high: 1125s)',
         minimum: 60,
         maximum: 1800,
-        default: 300
+        default: 375
       }
     },
     required: ['task'],
@@ -142,7 +146,8 @@ export class GPT5CodexTool extends Tool {
 
   private mapReasoningEffort(effort?: GPT5CodexArgs['reasoning_effort']): string | undefined {
     if (!effort) return undefined;
-    const mapped = effort === 'minimal' ? 'low' : effort;
+    // extra_high maps to extra-high for Codex CLI
+    const mapped = effort === 'extra_high' ? 'extra-high' : effort;
     return `model_reasoning_effort=${mapped}`;
   }
 
@@ -219,7 +224,7 @@ export class GPT5CodexTool extends Tool {
         `## 🤖 GPT-5 Codex Task Completed`,
         '',
         `**Task**: ${task}`,
-        `**Model**: ${meta.model || 'gpt-5-codex'}`,
+        `**Model**: ${meta.model || 'gpt-5.1-codex-max'}`,
         `**Mode**: ${meta.editMode}`,
         `**Execution Time**: ${(meta.execMs/1000).toFixed(1)}s`,
         '',
@@ -239,7 +244,7 @@ export class GPT5CodexTool extends Tool {
     const start = Date.now();
     const {
       task,
-      model = 'gpt-5-codex',
+      model = 'gpt-5.1-codex-max',
       profile,
       reasoning_effort = 'medium',
       verbosity,
@@ -254,7 +259,9 @@ export class GPT5CodexTool extends Tool {
     } = args;
 
     try {
-      const effectiveTimeoutSec = Math.min(1800, Math.max(60, timeout_sec ?? (reasoning_effort === 'high' ? 600 : 300)));
+      // Auto-extend timeout for high reasoning (+25%): high=750s, extra_high=1125s
+      const defaultTimeout = reasoning_effort === 'extra_high' ? 1125 : (reasoning_effort === 'high' ? 750 : 375);
+      const effectiveTimeoutSec = Math.min(1800, Math.max(60, timeout_sec ?? defaultTimeout));
 
       // Build the full prompt with inlined text files
       let prompt = task;
@@ -291,9 +298,9 @@ export class GPT5CodexTool extends Tool {
 
       // Build CLI args
       const cli: string[] = [];
-      // Web search
+      // Web search (use new --enable flag instead of deprecated -c tools.web_search)
       if (enable_web_search) {
-        cli.push('-c', 'tools.web_search=true');
+        cli.push('--enable', 'web_search_request');
       }
       // Edit mode - both approval and sandbox are global flags
       cli.push(...this.mapEditMode(edit_mode));
