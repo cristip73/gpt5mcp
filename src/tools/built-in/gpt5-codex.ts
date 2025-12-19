@@ -89,7 +89,7 @@ export class GPT5CodexTool extends Tool {
         description: '[MCP] Multiple text files to inline into prompt (max 200KB total)'
       },
       images: { type: 'array', items: { type: 'string' }, description: '[CLI -i] Image paths (known issues with exec mode)' },
-      enable_web_search: { type: 'boolean', description: '[CLI --search] Enable web search feature', default: false },
+      enable_web_search: { type: 'boolean', description: '[CLI --enable web_search_request] Enable web search', default: false },
       save_to_file: { type: 'boolean', description: '[MCP] Save output to markdown file', default: true },
       save_format: {
         type: 'string',
@@ -299,9 +299,9 @@ export class GPT5CodexTool extends Tool {
 
       // Build CLI args
       const cli: string[] = [];
-      // Web search (use --search flag per Codex CLI help)
+      // Web search (--enable web_search_request per deprecation notice)
       if (enable_web_search) {
-        cli.push('--search');
+        cli.push('--enable', 'web_search_request');
       }
       // Edit mode - both approval and sandbox are global flags
       cli.push(...this.mapEditMode(edit_mode));
