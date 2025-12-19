@@ -1,0 +1,127 @@
+- 🧭 Executive Summary
+  - Plan pentru extinderea serverului GPT-5 MCP cu capabilități de tool calling, similar cu ChatGPT
+  - Adăugiri: web search, code interpreter, gestionare fișiere, function calling, păstrând arhitectura curată
+
+- 🔎 Research Findings
+  - ChatGPT Tools (2024-2025)
+    - Web Browsing prin Bing API
+    - Code Interpreter (Python sandbox, analize, grafice)
+    - Generare imagini cu GPT-4o
+    - File Handling (Google Drive, OneDrive, upload)
+    - Plugin System (integrări terțe)
+    - AI Agents (“Operator” pt. automatizări web, 2025)
+  - OpenAI API Capabilities
+    - Function Calling cu runTools()
+    - Structured Outputs cu validare Zod
+    - Streaming cu event handlers
+    - File Operations (multiple metode upload)
+    - Polling Helpers pentru operații async
+  - Arhitectură curentă
+    - MCP Server cu tool unic gpt5_messages, OpenAI /v1/responses, Zod, error handling bun
+    - Lipsesc: infrastructura de tool calling și tool-uri built-in
+
+- 🧰 Phase 1: Tool Infrastructure
+  - 1.1 Enhanced GPT-5 API Integration
+    - Modifică utils.ts pentru function calling
+    - Parsare răspunsuri cu tool calls
+    - Streaming pentru interacțiuni cu tool-uri
+    - Handling rezultate și erori ale tool-urilor
+  - 1.2 Core Tool Framework
+    - Clasă abstractă Tool
+    - Sistem de înregistrare/registry pentru tool-uri
+    - Descoperire și validare tool
+    - Pipeline de execuție tool
+  - 1.3 Updated MCP Integration
+    - Serverul anunță capabilități de tool calling
+    - Îmbunătățește handling request/response pentru tool-uri
+    - Formatare rezultate pentru clienți MCP
+
+- 🛠️ Phase 2: Essential Built-in Tools
+  - 2.1 Web Search Tool
+    - Parametri: query, max_results?, time_range (day|week|month|year)
+  - 2.2 Code Interpreter Tool
+    - Parametri: code, timeout?
+  - 2.3 File Operations Tool
+    - Parametri: operation (read|write|list|delete), path, content?
+  - 2.4 Function Definition Tool
+    - Parametri: name, description, parameters (JSONSchema), implementation
+
+- ⚡ Phase 3: Advanced Capabilities
+  - 3.1 Multi-step Tool Chains
+    - Chain de rezultate, dependențe, secvențiere automată, retry/recovery
+  - 3.2 Streaming Tool Execution
+    - Feedback în timp real, rezultate progresive, anulare operații lungi
+  - 3.3 Tool State Management
+    - Stare persistentă pe conversații, context sharing, configurare pe sesiune
+
+- 🛡️ Phase 4: Security & Performance
+  - 4.1 Security Measures
+    - Sandbox pentru execuție, validare/sanitizare input, limite resurse/quote, audit logging
+  - 4.2 Performance Optimizations
+    - Caching rezultate, execuții paralele unde e sigur, resource pooling, lazy loading
+
+- 🧱 Technical Architecture
+  - Structură fișiere
+    - src/index.ts (MCP server)
+    - src/utils.ts (GPT-5 utilities extinse)
+    - src/tools/
+      - base.ts (Tool abstract)
+      - registry.ts (înregistrare/descoperire)
+      - built-in/ (web-search, code-interpreter, file-operations, function-definition)
+      - security/ (sandbox, validator)
+    - types/ (definiții pentru tools și responses)
+  - Core Interfaces
+    - ToolCall: function/web_search_preview/file_search + argumente
+    - ToolResult: tool_call_id, output, error?, metadata?
+
+- 🎯 Implementation Priorities
+  - Must-Have (MVP)
+    - Web search tool
+    - File operations (read/write/list)
+    - Function calling infra
+    - Error handling și validare de bază
+  - Should-Have
+    - Code interpreter (Python)
+    - Caching rezultate tool
+    - Streaming execuție tool
+    - Tool chains multi-step
+  - Nice-to-Have
+    - Generare imagini
+    - Suport fișiere avansate
+    - Analytics utilizare tool
+    - Plugin system custom
+
+- 🧪 Testing Strategy
+  - Unit Tests
+    - Funcționalitate tool individual, validare schema, scenarii de erori, teste de securitate
+  - Integration Tests
+    - Fluxuri end-to-end tool calling, integrare GPT-5, compatibilitate MCP, execuție chain
+  - Performance Tests
+    - Latență execuție, utilizare concurentă, limite resurse, eficiența cache
+
+- 🚨 Risk Mitigation
+  - Securitate
+    - Sandboxing strict pentru code exec, limitare directoare fișiere, control acces rețea, quotas/timeouts
+  - Performanță
+    - Rate limiting + retry, monitorizare memorie, timeouts
+  - Operațional
+    - Plan pentru outage API, backward compatibility, documentație setup clară
+
+- ✅ Success Metrics
+  - Funcționale
+    - Toate tool-urile planificate funcționale, >95% succes tool calling, <5s răspuns pt taskuri simple, 0 vulnerabilități critice
+  - UX
+    - Descrieri clare tool, erori utile cu sugestii, scheme parametri intuitive, exemple și ghiduri complete
+
+- 🗓️ Timeline
+  - Week 1: Infrastructură tool, integrare GPT-5 îmbunătățită, registry de bază
+  - Week 2: Web search, file operations, framework function calling, testare de bază
+  - Week 3: Code interpreter (dacă posibil), tool chaining, îmbunătățiri erori, optimizări performanță
+  - Week 4: Securitate și hardening, testare completă, documentație și exemple, tuning performanță
+
+- ▶️ Next Steps
+  - Începe Phase 1: infrastructură în src/tools/
+  - Extinde utils.ts cu tool calling pentru GPT-5
+  - Creează Web Search ca prim tool concret
+  - Actualizează index.ts pentru a expune capabilitățile de tool
+  - Testare iterativă pe fiecare componentă și integrare continuă
