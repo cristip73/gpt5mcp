@@ -97,3 +97,7 @@ servers/grok-server/
 
 # GPT-5 generated documents
 gpt5_docs/
+_gpt5_docs/
+
+# Codex CLI temp files
+.codex_last_*.txt
