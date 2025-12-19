@@ -1,12 +1,14 @@
 {
   "name": "gpt5mcp",
   "version": "1.0.0",
+  "type": "module",
   "description": "A Model Context Protocol (MCP) server that provides seamless integration with OpenAI's GPT-5 API through Claude Code. This server enables you to leverage GPT-5's advanced capabilities directly within your Claude Code workflows.",
   "main": "orbitale.js",
   "directories": {
     "doc": "docs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.24.3",
     "bytes": "^3.1.2",
     "content-type": "^1.0.5",
     "data-uri-to-buffer": "^4.0.1",
@@ -31,7 +33,6 @@
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.24.6"
   },
-  "devDependencies": {},
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
