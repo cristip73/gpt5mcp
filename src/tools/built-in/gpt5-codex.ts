@@ -73,7 +73,8 @@ export class GPT5CodexTool extends Tool {
         description: 'Autonomy/sandbox mapping for Codex CLI',
         default: 'auto_edit'
       },
-      file_path: { type: 'string', description: 'Absolute path to a file (text will be inlined; images will be attached)' },
+      // === MCP Tool Features (not CLI flags) ===
+      file_path: { type: 'string', description: '[MCP] Absolute path to text file - content inlined into prompt (max 100KB)' },
       files: {
         type: 'array',
         items: {
@@ -85,23 +86,23 @@ export class GPT5CodexTool extends Tool {
           required: ['path'],
           additionalProperties: false
         },
-        description: 'Multiple input files'
+        description: '[MCP] Multiple text files to inline into prompt (max 200KB total)'
       },
-      images: { type: 'array', items: { type: 'string' }, description: 'Image paths to pass with -i' },
-      enable_web_search: { type: 'boolean', description: 'Enable web search via --enable web_search_request', default: false },
-      save_to_file: { type: 'boolean', description: 'Save final output to file', default: true },
+      images: { type: 'array', items: { type: 'string' }, description: '[CLI -i] Image paths (known issues with exec mode)' },
+      enable_web_search: { type: 'boolean', description: '[CLI --search] Enable web search feature', default: false },
+      save_to_file: { type: 'boolean', description: '[MCP] Save output to markdown file', default: true },
       save_format: {
         type: 'string',
         enum: ['standard', 'clean'],
-        description: 'Output format: standard (with metadata) or clean (raw output only)',
+        description: '[MCP] Output format: standard (with metadata) or clean (raw only)',
         default: 'standard'
       },
-      output_folder: { type: 'string', description: 'Custom output folder path (default: _gpt5_docs). Supports relative paths, absolute paths, and tilde (~/) expansion' },
-      output_filename: { type: 'string', description: 'Custom output filename (default: auto-generated with timestamp). Extension .md added if not specified.' },
-      display_in_chat: { type: 'boolean', description: 'Return the content inline in chat', default: true },
+      output_folder: { type: 'string', description: '[MCP] Output folder (default: _gpt5_docs). Supports ~/ and relative paths' },
+      output_filename: { type: 'string', description: '[MCP] Custom filename (auto-generated if not set). .md added if missing' },
+      display_in_chat: { type: 'boolean', description: '[MCP] Show full output in chat response', default: true },
       timeout_sec: {
         type: 'number',
-        description: 'Timeout in seconds (default: 375s, high: 750s, extra_high: 1125s)',
+        description: '[MCP] Process timeout (default: 375s, high: 750s, extra_high: 1125s)',
         minimum: 60,
         maximum: 1800,
         default: 375
@@ -298,9 +299,9 @@ export class GPT5CodexTool extends Tool {
 
       // Build CLI args
       const cli: string[] = [];
-      // Web search (use new --enable flag instead of deprecated -c tools.web_search)
+      // Web search (use --search flag per Codex CLI help)
       if (enable_web_search) {
-        cli.push('--enable', 'web_search_request');
+        cli.push('--search');
       }
       // Edit mode - both approval and sandbox are global flags
       cli.push(...this.mapEditMode(edit_mode));
