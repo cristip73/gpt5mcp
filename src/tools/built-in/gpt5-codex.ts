@@ -65,7 +65,7 @@ export class GPT5CodexTool extends Tool {
       verbosity: {
         type: 'string',
         enum: ['low', 'medium', 'high'],
-        description: 'Text verbosity mapped to -c text.verbosity'
+        description: '[CLI -c model_verbosity] Response verbosity level'
       },
       edit_mode: {
         type: 'string',
@@ -311,7 +311,7 @@ export class GPT5CodexTool extends Tool {
       // Reasoning effort / verbosity
       const r = this.mapReasoningEffort(reasoning_effort);
       if (r) cli.push('-c', r);
-      if (verbosity) cli.push('-c', `text.verbosity=${verbosity}`);
+      if (verbosity) cli.push('-c', `model_verbosity=${verbosity}`);
       // Images will be added to exec subcommand, not global
 
       // Exec subcommand and last message capture
