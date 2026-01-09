@@ -45,19 +45,26 @@ interface BackgroundResult {
   error?: string;
 }
 
-// Poll for background response completion
+// Sleep helper with optional jitter
+const sleep = (ms: number, jitter: number = 0) =>
+  new Promise(resolve => setTimeout(resolve, ms + Math.floor(Math.random() * jitter)));
+
+// Poll for background response completion with exponential backoff
 async function pollForCompletion(
   responseId: string,
   apiKey: string,
   maxWaitMs: number = 900000, // 15 min default
-  pollIntervalMs: number = 3000
+  minIntervalMs: number = 400,
+  maxIntervalMs: number = 2500
 ): Promise<BackgroundResult> {
   const startTime = Date.now();
+  const deadline = startTime + maxWaitMs;
   let lastStatus = '';
+  let interval = minIntervalMs;
 
-  console.error(`\n[BACKGROUND] 🚀 Request submitted: ${responseId}`);
+  console.error(`\n[BACKGROUND] 🚀 Polling started for: ${responseId}`);
 
-  while (Date.now() - startTime < maxWaitMs) {
+  while (Date.now() < deadline) {
     const elapsed = Math.round((Date.now() - startTime) / 1000);
 
     try {
@@ -66,7 +73,8 @@ async function pollForCompletion(
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
-        }
+        },
+        signal: AbortSignal.timeout(20000) // 20s timeout for each poll
       });
 
       if (!response.ok) {
@@ -164,13 +172,15 @@ async function pollForCompletion(
         };
       }
 
-      // Still processing (queued or in_progress), wait and retry
-      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+      // Still processing (queued or in_progress), wait with backoff + jitter
+      await sleep(interval, 150); // Add up to 150ms jitter
+      interval = Math.min(maxIntervalMs, Math.floor(interval * 1.35));
 
     } catch (error: any) {
       console.error(`[BACKGROUND] ⚠️ Poll error: ${error.message}`);
-      // Retry on transient errors
-      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+      // Retry on transient errors with current interval
+      await sleep(interval, 150);
+      interval = Math.min(maxIntervalMs, Math.floor(interval * 1.35));
     }
   }
 
@@ -1094,12 +1104,16 @@ export class GPT5AgentTool extends Tool {
       // Check if model supports reasoning (non-reasoning models like gpt-5.1-chat-latest don't, also reasoning_effort='none' means no reasoning)
       const isReasoningModel = model !== 'gpt-5.1-chat-latest' && adaptiveReasoningEffort !== 'none';
 
-      // Mode selection based on reasoning effort:
+      // Mode selection based on reasoning effort and web search:
       // - none/minimal: Synchronous (fast, no timeout risk)
-      // - low/medium: Streaming (keeps connection alive with data chunks)
+      // - low: Streaming (keeps connection alive)
+      // - medium without web_search: Streaming
+      // - medium with web_search: Background (web search + reasoning = long TTFB)
       // - high: Background processing (async with polling, avoids all timeout issues)
-      const useBackground = adaptiveReasoningEffort === 'high';
-      const useStreaming = ['low', 'medium'].includes(adaptiveReasoningEffort);
+      const useBackground =
+        adaptiveReasoningEffort === 'high' ||
+        (args.enable_web_search === true && ['medium', 'high'].includes(adaptiveReasoningEffort));
+      const useStreaming = !useBackground && ['low', 'medium'].includes(adaptiveReasoningEffort);
 
       // Initial request to Responses API with multimodal content support
       const initialRequest: ResponsesAPIRequest = {
@@ -1169,8 +1183,13 @@ export class GPT5AgentTool extends Tool {
           store: true  // Required for background mode + good for continuation
         };
         
-        // Make API request with timeout to prevent socket hang up
-        const fetchTimeoutMs = Math.min(effectiveMaxExecutionSeconds * 1000, 900000); // Max 15 min
+        // Make API request
+        // Background mode: short timeout (30s) - should return ID instantly
+        // Streaming/Sync: longer timeout for actual response
+        const fetchTimeoutMs = useBackground
+          ? 30000  // 30s for background - just getting the ID
+          : Math.min(effectiveMaxExecutionSeconds * 1000, 900000); // Max 15 min for streaming/sync
+
         const response = await fetch('https://api.openai.com/v1/responses', {
           method: 'POST',
           headers: {
@@ -1204,12 +1223,15 @@ export class GPT5AgentTool extends Tool {
           // Background mode: get response ID immediately, then poll for completion
           const submitData = await response.json() as any;
           const responseId = submitData.id;
+          const initialStatus = submitData.status || 'unknown';
 
           if (!responseId) {
             throw new Error('No response ID received from background request');
           }
 
-          // Poll for completion (handles all status updates internally)
+          console.error(`[BACKGROUND] 📤 Submitted! ID: ${responseId}, Status: ${initialStatus}`);
+
+          // Poll for completion with exponential backoff
           const bgResult = await pollForCompletion(
             responseId,
             context.apiKey,
