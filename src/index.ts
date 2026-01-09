@@ -14,6 +14,15 @@ import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { callGPT5WithMessages } from './utils.js';
 import { registerAllBuiltInTools, globalToolRegistry } from './tools/index.js';
+import { appendFileSync } from 'fs';
+
+// Simple diagnostic log file
+const DIAG_LOG = '/Users/cristi/Downloads/CODING/gpt5mcp/mcp-diagnostic.log';
+const diagLog = (msg: string) => {
+  try {
+    appendFileSync(DIAG_LOG, `[${new Date().toISOString()}] ${msg}\n`);
+  } catch {}
+};
 
 // Initialize environment from parent directory
 import { dirname } from 'path';
