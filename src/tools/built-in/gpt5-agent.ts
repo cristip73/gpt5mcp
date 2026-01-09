@@ -24,170 +24,6 @@ interface StreamingAccumulator {
   error?: string;
 }
 
-// Background processing result
-interface BackgroundResult {
-  id: string;
-  status: 'completed' | 'failed' | 'cancelled';
-  outputText: string;
-  reasoningSummary: string;
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-    reasoningTokens: number;
-  };
-  toolCalls: Array<{
-    id: string;
-    callId: string;
-    name: string;
-    arguments: string;
-  }>;
-  error?: string;
-}
-
-// Sleep helper with optional jitter
-const sleep = (ms: number, jitter: number = 0) =>
-  new Promise(resolve => setTimeout(resolve, ms + Math.floor(Math.random() * jitter)));
-
-// Poll for background response completion with exponential backoff
-async function pollForCompletion(
-  responseId: string,
-  apiKey: string,
-  maxWaitMs: number = 900000, // 15 min default
-  minIntervalMs: number = 400,
-  maxIntervalMs: number = 2500
-): Promise<BackgroundResult> {
-  const startTime = Date.now();
-  const deadline = startTime + maxWaitMs;
-  let lastStatus = '';
-  let interval = minIntervalMs;
-
-  console.error(`\n[BACKGROUND] 🚀 Polling started for: ${responseId}`);
-
-  while (Date.now() < deadline) {
-    const elapsed = Math.round((Date.now() - startTime) / 1000);
-
-    try {
-      const response = await fetch(`https://api.openai.com/v1/responses/${responseId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        signal: AbortSignal.timeout(20000) // 20s timeout for each poll
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Poll error: ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json() as any;
-      const status = data.status;
-
-      // Log status changes
-      if (status !== lastStatus) {
-        console.error(`[BACKGROUND] ⏳ Status: ${status} (${elapsed}s elapsed)`);
-        lastStatus = status;
-      }
-
-      // Check terminal states
-      if (status === 'completed') {
-        console.error(`[BACKGROUND] ✅ Completed in ${elapsed}s`);
-
-        // Extract output text from response
-        let outputText = '';
-        let reasoningSummary = '';
-        const toolCalls: BackgroundResult['toolCalls'] = [];
-
-        // Check output_text first (convenience field)
-        if (data.output_text) {
-          outputText = data.output_text;
-        }
-
-        // Extract from output array if needed
-        if (data.output && Array.isArray(data.output)) {
-          for (const item of data.output) {
-            if (item.type === 'message' && item.content) {
-              for (const part of item.content) {
-                if (part.type === 'output_text' && part.text) {
-                  outputText += part.text;
-                }
-              }
-            }
-            if (item.type === 'function_call') {
-              toolCalls.push({
-                id: item.id || '',
-                callId: item.call_id || '',
-                name: item.name || '',
-                arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments)
-              });
-            }
-          }
-        }
-
-        // Extract reasoning summary
-        if (data.reasoning_summary) {
-          reasoningSummary = data.reasoning_summary;
-        }
-
-        return {
-          id: data.id,
-          status: 'completed',
-          outputText,
-          reasoningSummary,
-          usage: {
-            inputTokens: data.usage?.input_tokens || 0,
-            outputTokens: data.usage?.output_tokens || 0,
-            reasoningTokens: data.usage?.output_tokens_details?.reasoning_tokens || 0
-          },
-          toolCalls
-        };
-      }
-
-      if (status === 'failed') {
-        const errorMsg = data.error?.message || 'Unknown error';
-        console.error(`[BACKGROUND] ❌ Failed: ${errorMsg}`);
-        return {
-          id: data.id,
-          status: 'failed',
-          outputText: '',
-          reasoningSummary: '',
-          usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0 },
-          toolCalls: [],
-          error: errorMsg
-        };
-      }
-
-      if (status === 'cancelled') {
-        console.error(`[BACKGROUND] 🚫 Cancelled`);
-        return {
-          id: data.id,
-          status: 'cancelled',
-          outputText: '',
-          reasoningSummary: '',
-          usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0 },
-          toolCalls: [],
-          error: 'Request was cancelled'
-        };
-      }
-
-      // Still processing (queued or in_progress), wait with backoff + jitter
-      await sleep(interval, 150); // Add up to 150ms jitter
-      interval = Math.min(maxIntervalMs, Math.floor(interval * 1.35));
-
-    } catch (error: any) {
-      console.error(`[BACKGROUND] ⚠️ Poll error: ${error.message}`);
-      // Retry on transient errors with current interval
-      await sleep(interval, 150);
-      interval = Math.min(maxIntervalMs, Math.floor(interval * 1.35));
-    }
-  }
-
-  // Timeout
-  console.error(`[BACKGROUND] ⏱️ Timeout after ${maxWaitMs / 1000}s`);
-  throw new Error(`Background request timed out after ${maxWaitMs / 1000} seconds`);
-}
-
 // Parse SSE line into event data
 const parseSSELine = (line: string): { event?: string; data?: string } => {
   if (line.startsWith('event:')) {
@@ -395,9 +231,12 @@ async function processStreamingResponse(
 }
 
 interface GPT5AgentArgs {
-  // Required
-  task: string;
-  
+  // Task (required for auto/start operations)
+  task?: string;
+
+  // Operation mode
+  operation?: 'auto' | 'start' | 'poll' | 'cancel';
+
   // Optional Configuration
   reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high';
   verbosity?: 'low' | 'medium' | 'high';
@@ -462,7 +301,11 @@ interface ResponsesAPIRequest {
 
 export class GPT5AgentTool extends Tool {
   name = 'gpt5_agent';
-  description = 'Autonomously solves tasks via GPT-5, orchestrating registered tools, web search, code interpreter, and file actions';
+  description = `Autonomously solves tasks via GPT-5, orchestrating registered tools, web search, code interpreter, and file actions.
+
+For quick tasks: Use with default settings (operation="auto").
+For long tasks (high reasoning, web search): Use operation="start" to get a response_id, then operation="poll" with that response_id until status="completed".
+Each poll should wait 5-10 seconds before retrying.`;
   type = 'function' as const;
   
   parameters = {
@@ -470,7 +313,13 @@ export class GPT5AgentTool extends Tool {
     properties: {
       task: {
         type: 'string',
-        description: 'High-level task description for the agent to complete'
+        description: 'High-level task description for the agent to complete. Required for "auto" and "start" operations.'
+      },
+      operation: {
+        type: 'string',
+        enum: ['auto', 'start', 'poll', 'cancel'],
+        default: 'auto',
+        description: 'Operation mode: "auto" (default, handles simple tasks directly), "start" (launch background job for long tasks, returns response_id), "poll" (check job status, requires response_id), "cancel" (cancel a running job)'
       },
       reasoning_effort: {
         type: 'string',
@@ -544,7 +393,7 @@ export class GPT5AgentTool extends Tool {
       },
       previous_response_id: {
         type: 'string',
-        description: 'ID from a previous response to continue the conversation'
+        description: 'Response ID from a previous "start" operation. Required for "poll" and "cancel" operations. Also used to continue a conversation.'
       },
       quality_over_cost: {
         type: 'boolean',
@@ -599,7 +448,7 @@ export class GPT5AgentTool extends Tool {
         }
       }
     },
-    required: ['task'],
+    required: [],  // task required for auto/start, previous_response_id required for poll/cancel - validated in execute()
     additionalProperties: false
   };
 
@@ -946,7 +795,337 @@ export class GPT5AgentTool extends Tool {
     }
   }
 
+  /**
+   * Start a background job for long-running tasks.
+   * Returns response_id immediately (<5s), then use poll to check status.
+   */
+  private async executeStart(args: GPT5AgentArgs, context: ToolExecutionContext): Promise<ToolResult> {
+    const startTime = Date.now();
+
+    if (!args.task) {
+      return {
+        tool_call_id: `gpt5_agent_start_${Date.now()}`,
+        output: '',
+        error: 'Task is required for "start" operation',
+        status: 'error',
+        metadata: {}
+      };
+    }
+
+    const model = args.model || 'gpt-5.2';
+    const reasoningEffort = args.reasoning_effort || 'medium';
+    const verbosity = args.verbosity || 'medium';
+
+    // Build tools array
+    const tools = this.buildToolsArray(args);
+
+    // Build system prompt
+    const systemPrompt = this.buildSystemPrompt(args);
+
+    // Build user content
+    const userContent: Array<any> = [{ type: 'input_text', text: args.task }];
+
+    // Add context if provided
+    if (args.context) {
+      userContent.unshift({ type: 'input_text', text: `Context:\n${args.context}\n\n` });
+    }
+
+    const request = {
+      model,
+      input: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent }
+      ],
+      tools: tools.length > 0 ? tools : undefined,
+      reasoning: {
+        effort: reasoningEffort,
+        summary: args.show_reasoning_summary ? 'auto' : undefined
+      },
+      text: { verbosity },
+      max_output_tokens: 32000,
+      background: true,
+      stream: false,
+      store: true
+    };
+
+    console.error(`[START] 🚀 Submitting background job...`);
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${context.apiKey}`
+        },
+        body: JSON.stringify(request),
+        signal: AbortSignal.timeout(15000) // 15s timeout - should return instantly
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json() as any;
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+      console.error(`[START] ✅ Job submitted in ${elapsed}s - ID: ${data.id}, Status: ${data.status}`);
+
+      return {
+        tool_call_id: `gpt5_agent_start_${Date.now()}`,
+        output: JSON.stringify({
+          operation: 'start',
+          response_id: data.id,
+          status: data.status,
+          message: `Background job started. Use operation="poll" with this response_id to check status.`,
+          next_poll_in_seconds: 5
+        }, null, 2),
+        status: 'success',
+        metadata: {
+          response_id: data.id,
+          status: data.status,
+          model,
+          reasoning_effort: reasoningEffort,
+          execution_time: elapsed
+        }
+      };
+
+    } catch (error: any) {
+      console.error(`[START] ❌ Error: ${error.message}`);
+      return {
+        tool_call_id: `gpt5_agent_start_${Date.now()}`,
+        output: '',
+        error: `Failed to start background job: ${error.message}`,
+        status: 'error',
+        metadata: {}
+      };
+    }
+  }
+
+  /**
+   * Poll a background job for status/completion.
+   * Returns status and output_text when completed.
+   */
+  private async executePoll(args: GPT5AgentArgs, context: ToolExecutionContext): Promise<ToolResult> {
+    const responseId = args.previous_response_id;
+
+    if (!responseId) {
+      return {
+        tool_call_id: `gpt5_agent_poll_${Date.now()}`,
+        output: '',
+        error: 'previous_response_id is required for "poll" operation. Use "start" operation first to get a response_id.',
+        status: 'error',
+        metadata: {}
+      };
+    }
+
+    console.error(`[POLL] 🔄 Checking status for ${responseId}...`);
+
+    try {
+      const response = await fetch(`https://api.openai.com/v1/responses/${responseId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${context.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        signal: AbortSignal.timeout(15000) // 15s timeout
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json() as any;
+      const status = data.status;
+
+      console.error(`[POLL] 📊 Status: ${status}`);
+
+      if (status === 'completed') {
+        // Extract output text and reasoning summary
+        let outputText = '';
+        let reasoningSummary = '';
+
+        if (data.output) {
+          for (const item of data.output) {
+            if (item.type === 'message' && item.content) {
+              for (const content of item.content) {
+                if (content.type === 'output_text') {
+                  outputText += content.text;
+                }
+              }
+            }
+            if (item.type === 'reasoning' && item.summary) {
+              for (const s of item.summary) {
+                if (s.type === 'summary_text') {
+                  reasoningSummary += s.text;
+                }
+              }
+            }
+          }
+        }
+
+        // Fallback to output_text if available
+        if (!outputText && data.output_text) {
+          outputText = data.output_text;
+        }
+
+        const usage = data.usage || {};
+
+        return {
+          tool_call_id: `gpt5_agent_poll_${Date.now()}`,
+          output: JSON.stringify({
+            operation: 'poll',
+            response_id: responseId,
+            status: 'completed',
+            output_text: outputText,
+            reasoning_summary: reasoningSummary || undefined,
+            usage: {
+              input_tokens: usage.input_tokens || 0,
+              output_tokens: usage.output_tokens || 0,
+              reasoning_tokens: usage.reasoning_tokens || 0
+            }
+          }, null, 2),
+          status: 'success',
+          metadata: {
+            response_id: responseId,
+            status: 'completed',
+            tokens: usage
+          }
+        };
+      }
+
+      if (status === 'failed' || status === 'cancelled') {
+        const errorMsg = data.error?.message || `Job ${status}`;
+        return {
+          tool_call_id: `gpt5_agent_poll_${Date.now()}`,
+          output: JSON.stringify({
+            operation: 'poll',
+            response_id: responseId,
+            status,
+            error: errorMsg
+          }, null, 2),
+          status: 'error',
+          error: errorMsg,
+          metadata: { response_id: responseId, status }
+        };
+      }
+
+      // Still in progress
+      return {
+        tool_call_id: `gpt5_agent_poll_${Date.now()}`,
+        output: JSON.stringify({
+          operation: 'poll',
+          response_id: responseId,
+          status,
+          message: `Job is ${status}. Please poll again in a few seconds.`,
+          next_poll_in_seconds: status === 'queued' ? 3 : 5
+        }, null, 2),
+        status: 'success',
+        metadata: { response_id: responseId, status }
+      };
+
+    } catch (error: any) {
+      console.error(`[POLL] ❌ Error: ${error.message}`);
+      return {
+        tool_call_id: `gpt5_agent_poll_${Date.now()}`,
+        output: '',
+        error: `Failed to poll job: ${error.message}`,
+        status: 'error',
+        metadata: {}
+      };
+    }
+  }
+
+  /**
+   * Cancel a running background job.
+   */
+  private async executeCancel(args: GPT5AgentArgs, context: ToolExecutionContext): Promise<ToolResult> {
+    const responseId = args.previous_response_id;
+
+    if (!responseId) {
+      return {
+        tool_call_id: `gpt5_agent_cancel_${Date.now()}`,
+        output: '',
+        error: 'previous_response_id is required for "cancel" operation.',
+        status: 'error',
+        metadata: {}
+      };
+    }
+
+    console.error(`[CANCEL] 🛑 Cancelling job ${responseId}...`);
+
+    try {
+      const response = await fetch(`https://api.openai.com/v1/responses/${responseId}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${context.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        signal: AbortSignal.timeout(15000)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json() as any;
+
+      console.error(`[CANCEL] ✅ Job cancelled: ${data.status}`);
+
+      return {
+        tool_call_id: `gpt5_agent_cancel_${Date.now()}`,
+        output: JSON.stringify({
+          operation: 'cancel',
+          response_id: responseId,
+          status: data.status || 'cancelled',
+          message: 'Job has been cancelled.'
+        }, null, 2),
+        status: 'success',
+        metadata: { response_id: responseId, status: 'cancelled' }
+      };
+
+    } catch (error: any) {
+      console.error(`[CANCEL] ❌ Error: ${error.message}`);
+      return {
+        tool_call_id: `gpt5_agent_cancel_${Date.now()}`,
+        output: '',
+        error: `Failed to cancel job: ${error.message}`,
+        status: 'error',
+        metadata: {}
+      };
+    }
+  }
+
   async execute(args: GPT5AgentArgs, context: ToolExecutionContext): Promise<ToolResult> {
+    // Handle operation modes: start, poll, cancel route to dedicated methods
+    const operation = args.operation || 'auto';
+
+    if (operation === 'start') {
+      return this.executeStart(args, context);
+    }
+
+    if (operation === 'poll') {
+      return this.executePoll(args, context);
+    }
+
+    if (operation === 'cancel') {
+      return this.executeCancel(args, context);
+    }
+
+    // operation === 'auto' - continue with normal execution
+    // Validate task is provided for auto mode
+    if (!args.task) {
+      return {
+        tool_call_id: `gpt5_agent_${Date.now()}`,
+        output: '',
+        error: 'Task is required for "auto" operation. For poll/cancel operations, use operation="poll" or operation="cancel" with previous_response_id.',
+        status: 'error',
+        metadata: {}
+      };
+    }
+
     try {
       const startTime = Date.now();
       let {
@@ -1103,16 +1282,13 @@ export class GPT5AgentTool extends Tool {
       // Check if model supports reasoning (non-reasoning models like gpt-5.1-chat-latest don't, also reasoning_effort='none' means no reasoning)
       const isReasoningModel = model !== 'gpt-5.1-chat-latest' && adaptiveReasoningEffort !== 'none';
 
-      // Mode selection based on reasoning effort and web search:
+      // Mode selection for auto operation:
       // - none/minimal: Synchronous (fast, no timeout risk)
-      // - low: Streaming (keeps connection alive)
-      // - medium without web_search: Streaming
-      // - medium with web_search: Background (web search + reasoning = long TTFB)
-      // - high: Background processing (async with polling, avoids all timeout issues)
-      const useBackground =
-        adaptiveReasoningEffort === 'high' ||
-        (args.enable_web_search === true && ['medium', 'high'].includes(adaptiveReasoningEffort));
-      const useStreaming = !useBackground && ['low', 'medium'].includes(adaptiveReasoningEffort);
+      // - low/medium/high: Streaming (keeps connection alive)
+      //
+      // NOTE: For high reasoning + web search, users should use operation="start" + "poll"
+      // instead of auto mode to avoid MCP client timeout issues.
+      const useStreaming = ['low', 'medium', 'high'].includes(adaptiveReasoningEffort);
 
       // Initial request to Responses API with multimodal content support
       const initialRequest: ResponsesAPIRequest = {
@@ -1132,9 +1308,9 @@ export class GPT5AgentTool extends Tool {
           verbosity
         },
         max_output_tokens: maxOutputTokens,
-        background: useBackground,
-        stream: useStreaming && !useBackground, // No streaming in background mode
-        store: true,  // Required for background mode, also good for continuation
+        background: false,  // Always false in auto mode - use start/poll for background jobs
+        stream: useStreaming,
+        store: true,  // Good for continuation with previous_response_id
         previous_response_id: args.previous_response_id  // Use provided ID if continuing
       } as ResponsesAPIRequest;
       
@@ -1177,27 +1353,35 @@ export class GPT5AgentTool extends Tool {
             verbosity
           },
           max_output_tokens: maxOutputTokens,
-          background: useBackground,
-          stream: useStreaming && !useBackground,
-          store: true  // Required for background mode + good for continuation
+          background: false,  // Always false in auto mode
+          stream: useStreaming,
+          store: true
         };
-        
-        // Make API request
-        // Background mode: 30s timeout - should return ID quickly
-        // Streaming/Sync: longer timeout for actual response
-        const fetchTimeoutMs = useBackground
-          ? 30000  // 30s for background - just getting the ID
-          : Math.min(effectiveMaxExecutionSeconds * 1000, 900000); // Max 15 min for streaming/sync
 
-        const response = await fetch('https://api.openai.com/v1/responses', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${context.apiKey}`,
-          },
-          body: JSON.stringify(request),
-          signal: AbortSignal.timeout(fetchTimeoutMs)
-        });
+        // Make API request with appropriate timeout
+        const fetchTimeoutMs = Math.min(effectiveMaxExecutionSeconds * 1000, 900000); // Max 15 min
+
+        console.error(`[FETCH] 📡 Starting request, timeout: ${fetchTimeoutMs}ms, streaming: ${useStreaming}`);
+
+        // Make fetch request with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), fetchTimeoutMs);
+        let response: Response;
+        try {
+          response = await fetch('https://api.openai.com/v1/responses', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${context.apiKey}`,
+            },
+            body: JSON.stringify(request),
+            signal: controller.signal
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+
+        console.error(`[FETCH] ✅ Response received: ${response.status}`);
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -1213,60 +1397,12 @@ export class GPT5AgentTool extends Tool {
           throw new Error(errorMessage);
         }
 
-        // Process response based on mode: background, streaming, or synchronous
+        // Process response based on mode: streaming or synchronous
         let data: any;
         const toolCalls: Array<any> = [];
         let hasMessage = false;
 
-        if (useBackground) {
-          // Background mode: get response ID immediately, then poll for completion
-          const submitData = await response.json() as any;
-          const responseId = submitData.id;
-          const initialStatus = submitData.status || 'unknown';
-
-          if (!responseId) {
-            throw new Error('No response ID received from background request');
-          }
-
-          console.error(`[BACKGROUND] 📤 Submitted! ID: ${responseId}, Status: ${initialStatus}`);
-
-          // Poll for completion with exponential backoff
-          const bgResult = await pollForCompletion(
-            responseId,
-            context.apiKey,
-            effectiveMaxExecutionSeconds * 1000 // Use configured timeout
-          );
-
-          if (bgResult.error) {
-            throw new Error(`Background processing error: ${bgResult.error}`);
-          }
-
-          // Extract results from background response
-          previousResponseId = bgResult.id;
-          totalInputTokens += bgResult.usage.inputTokens;
-          totalOutputTokens += bgResult.usage.outputTokens;
-          totalReasoningTokens += bgResult.usage.reasoningTokens;
-
-          if (bgResult.reasoningSummary) {
-            reasoningSummary = bgResult.reasoningSummary;
-          }
-
-          if (bgResult.outputText.trim()) {
-            finalOutput = bgResult.outputText;
-            hasMessage = true;
-          }
-
-          // Convert tool calls to expected format
-          for (const tc of bgResult.toolCalls) {
-            toolCalls.push({
-              type: 'function_call',
-              id: tc.id,
-              call_id: tc.callId,
-              name: tc.name,
-              arguments: tc.arguments
-            });
-          }
-        } else if (useStreaming) {
+        if (useStreaming) {
           // Streaming mode: process SSE events as they arrive
           const streamResult = await processStreamingResponse(response);
 
