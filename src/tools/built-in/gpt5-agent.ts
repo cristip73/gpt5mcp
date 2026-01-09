@@ -71,6 +71,8 @@ async function processStreamingResponse(
     arguments: string;
   }>();
 
+  console.error('\n[STREAMING] 🟢 Stream started...');
+
   try {
     for await (const chunk of body) {
       lastActivityTime = Date.now();
@@ -106,6 +108,8 @@ async function processStreamingResponse(
               case 'response.output_text.delta':
                 if (eventData.delta) {
                   accumulator.outputText += eventData.delta;
+                  // Live streaming output - show chunks as they arrive
+                  process.stderr.write(eventData.delta);
                 }
                 break;
 
@@ -211,10 +215,13 @@ async function processStreamingResponse(
       }
     }
   } catch (streamError: any) {
+    console.error(`\n[STREAMING] 🔴 Stream error: ${streamError.message}`);
     if (!accumulator.done) {
       accumulator.error = streamError.message || 'Stream error';
     }
   }
+
+  console.error(`\n[STREAMING] 🏁 Stream ended. Done: ${accumulator.done}, Error: ${accumulator.error || 'none'}`);
 
   // Finalize any pending function calls that weren't explicitly closed
   for (const [, call] of pendingFunctionCalls) {
