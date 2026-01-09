@@ -25,6 +25,160 @@ interface StreamingAccumulator {
   error?: string;
 }
 
+// Background processing result
+interface BackgroundResult {
+  id: string;
+  status: 'completed' | 'failed' | 'cancelled';
+  outputText: string;
+  reasoningSummary: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    reasoningTokens: number;
+  };
+  toolCalls: Array<{
+    id: string;
+    callId: string;
+    name: string;
+    arguments: string;
+  }>;
+  error?: string;
+}
+
+// Poll for background response completion
+async function pollForCompletion(
+  responseId: string,
+  apiKey: string,
+  maxWaitMs: number = 900000, // 15 min default
+  pollIntervalMs: number = 3000
+): Promise<BackgroundResult> {
+  const startTime = Date.now();
+  let lastStatus = '';
+
+  console.error(`\n[BACKGROUND] 🚀 Request submitted: ${responseId}`);
+
+  while (Date.now() - startTime < maxWaitMs) {
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+
+    try {
+      const response = await fetch(`https://api.openai.com/v1/responses/${responseId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Poll error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json() as any;
+      const status = data.status;
+
+      // Log status changes
+      if (status !== lastStatus) {
+        console.error(`[BACKGROUND] ⏳ Status: ${status} (${elapsed}s elapsed)`);
+        lastStatus = status;
+      }
+
+      // Check terminal states
+      if (status === 'completed') {
+        console.error(`[BACKGROUND] ✅ Completed in ${elapsed}s`);
+
+        // Extract output text from response
+        let outputText = '';
+        let reasoningSummary = '';
+        const toolCalls: BackgroundResult['toolCalls'] = [];
+
+        // Check output_text first (convenience field)
+        if (data.output_text) {
+          outputText = data.output_text;
+        }
+
+        // Extract from output array if needed
+        if (data.output && Array.isArray(data.output)) {
+          for (const item of data.output) {
+            if (item.type === 'message' && item.content) {
+              for (const part of item.content) {
+                if (part.type === 'output_text' && part.text) {
+                  outputText += part.text;
+                }
+              }
+            }
+            if (item.type === 'function_call') {
+              toolCalls.push({
+                id: item.id || '',
+                callId: item.call_id || '',
+                name: item.name || '',
+                arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments)
+              });
+            }
+          }
+        }
+
+        // Extract reasoning summary
+        if (data.reasoning_summary) {
+          reasoningSummary = data.reasoning_summary;
+        }
+
+        return {
+          id: data.id,
+          status: 'completed',
+          outputText,
+          reasoningSummary,
+          usage: {
+            inputTokens: data.usage?.input_tokens || 0,
+            outputTokens: data.usage?.output_tokens || 0,
+            reasoningTokens: data.usage?.output_tokens_details?.reasoning_tokens || 0
+          },
+          toolCalls
+        };
+      }
+
+      if (status === 'failed') {
+        const errorMsg = data.error?.message || 'Unknown error';
+        console.error(`[BACKGROUND] ❌ Failed: ${errorMsg}`);
+        return {
+          id: data.id,
+          status: 'failed',
+          outputText: '',
+          reasoningSummary: '',
+          usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0 },
+          toolCalls: [],
+          error: errorMsg
+        };
+      }
+
+      if (status === 'cancelled') {
+        console.error(`[BACKGROUND] 🚫 Cancelled`);
+        return {
+          id: data.id,
+          status: 'cancelled',
+          outputText: '',
+          reasoningSummary: '',
+          usage: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0 },
+          toolCalls: [],
+          error: 'Request was cancelled'
+        };
+      }
+
+      // Still processing (queued or in_progress), wait and retry
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+
+    } catch (error: any) {
+      console.error(`[BACKGROUND] ⚠️ Poll error: ${error.message}`);
+      // Retry on transient errors
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
+  }
+
+  // Timeout
+  console.error(`[BACKGROUND] ⏱️ Timeout after ${maxWaitMs / 1000}s`);
+  throw new Error(`Background request timed out after ${maxWaitMs / 1000} seconds`);
+}
+
 // Parse SSE line into event data
 const parseSSELine = (line: string): { event?: string; data?: string } => {
   if (line.startsWith('event:')) {
@@ -294,6 +448,7 @@ interface ResponsesAPIRequest {
   max_output_tokens?: number;
   stream?: boolean;
   store?: boolean;
+  background?: boolean;
 }
 
 export class GPT5AgentTool extends Tool {
@@ -939,10 +1094,12 @@ export class GPT5AgentTool extends Tool {
       // Check if model supports reasoning (non-reasoning models like gpt-5.1-chat-latest don't, also reasoning_effort='none' means no reasoning)
       const isReasoningModel = model !== 'gpt-5.1-chat-latest' && adaptiveReasoningEffort !== 'none';
 
-      // Use streaming for low/medium/high reasoning to prevent Cloudflare timeout (60s)
-      // Streaming keeps the connection alive with periodic data chunks
-      // Only none/minimal are fast enough to skip streaming
-      const useStreaming = ['low', 'medium', 'high'].includes(adaptiveReasoningEffort);
+      // Mode selection based on reasoning effort:
+      // - none/minimal: Synchronous (fast, no timeout risk)
+      // - low/medium: Streaming (keeps connection alive with data chunks)
+      // - high: Background processing (async with polling, avoids all timeout issues)
+      const useBackground = adaptiveReasoningEffort === 'high';
+      const useStreaming = ['low', 'medium'].includes(adaptiveReasoningEffort);
 
       // Initial request to Responses API with multimodal content support
       const initialRequest: ResponsesAPIRequest = {
@@ -962,8 +1119,9 @@ export class GPT5AgentTool extends Tool {
           verbosity
         },
         max_output_tokens: maxOutputTokens,
-        stream: useStreaming,
-        store: !args.previous_response_id,  // Store new conversations for continuation
+        background: useBackground,
+        stream: useStreaming && !useBackground, // No streaming in background mode
+        store: true,  // Required for background mode, also good for continuation
         previous_response_id: args.previous_response_id  // Use provided ID if continuing
       } as ResponsesAPIRequest;
       
@@ -1006,8 +1164,9 @@ export class GPT5AgentTool extends Tool {
             verbosity
           },
           max_output_tokens: maxOutputTokens,
-          stream: useStreaming,
-          store: true  // Continue storing for potential future continuations
+          background: useBackground,
+          stream: useStreaming && !useBackground,
+          store: true  // Required for background mode + good for continuation
         };
         
         // Make API request with timeout to prevent socket hang up
@@ -1036,13 +1195,58 @@ export class GPT5AgentTool extends Tool {
           throw new Error(errorMessage);
         }
 
-        // Process response based on streaming mode
+        // Process response based on mode: background, streaming, or synchronous
         let data: any;
         const toolCalls: Array<any> = [];
         let hasMessage = false;
 
-        if (useStreaming) {
-          // Process streaming response - accumulates silently without chat output
+        if (useBackground) {
+          // Background mode: get response ID immediately, then poll for completion
+          const submitData = await response.json() as any;
+          const responseId = submitData.id;
+
+          if (!responseId) {
+            throw new Error('No response ID received from background request');
+          }
+
+          // Poll for completion (handles all status updates internally)
+          const bgResult = await pollForCompletion(
+            responseId,
+            context.apiKey,
+            effectiveMaxExecutionSeconds * 1000 // Use configured timeout
+          );
+
+          if (bgResult.error) {
+            throw new Error(`Background processing error: ${bgResult.error}`);
+          }
+
+          // Extract results from background response
+          previousResponseId = bgResult.id;
+          totalInputTokens += bgResult.usage.inputTokens;
+          totalOutputTokens += bgResult.usage.outputTokens;
+          totalReasoningTokens += bgResult.usage.reasoningTokens;
+
+          if (bgResult.reasoningSummary) {
+            reasoningSummary = bgResult.reasoningSummary;
+          }
+
+          if (bgResult.outputText.trim()) {
+            finalOutput = bgResult.outputText;
+            hasMessage = true;
+          }
+
+          // Convert tool calls to expected format
+          for (const tc of bgResult.toolCalls) {
+            toolCalls.push({
+              type: 'function_call',
+              id: tc.id,
+              call_id: tc.callId,
+              name: tc.name,
+              arguments: tc.arguments
+            });
+          }
+        } else if (useStreaming) {
+          // Streaming mode: process SSE events as they arrive
           const streamResult = await processStreamingResponse(response);
 
           if (streamResult.error) {
