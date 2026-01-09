@@ -1,5 +1,4 @@
 import { Tool, ToolExecutionContext, ToolResult } from '../base.js';
-import fetch from 'node-fetch';
 
 interface CodeInterpreterArgs {
   code: string;
