@@ -101,3 +101,5 @@ gpt5_docs/
 # Codex CLI temp files
 .codex_last_*.txt
 _gpt5_docs/.codex_last_*.txt
+.mcp.json
+release/

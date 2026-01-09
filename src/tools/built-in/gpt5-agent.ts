@@ -1,9 +1,82 @@
 import { Tool, ToolExecutionContext, ToolResult } from '../base.js';
-import fetch from 'node-fetch';
+import fetch, { RequestInit } from 'node-fetch';
+import http from 'http';
+import https from 'https';
 import { globalToolRegistry } from '../registry.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
+
+// Keep-alive agents to prevent socket hang up errors
+// See: https://github.com/node-fetch/node-fetch/issues/1735
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30000,
+  maxSockets: 10,
+  timeout: 0  // Disable socket timeout, we'll handle it ourselves
+});
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30000,
+  maxSockets: 10,
+  timeout: 0
+});
+
+// Diagnostic logging helper
+const logDiagnostic = (level: 'info' | 'warn' | 'error', message: string, data?: Record<string, any>) => {
+  const timestamp = new Date().toISOString();
+  const prefix = `[GPT5-Agent ${timestamp}]`;
+  const dataStr = data ? ` ${JSON.stringify(data)}` : '';
+
+  if (level === 'error') {
+    console.error(`${prefix} ERROR: ${message}${dataStr}`);
+  } else if (level === 'warn') {
+    console.warn(`${prefix} WARN: ${message}${dataStr}`);
+  } else {
+    console.log(`${prefix} INFO: ${message}${dataStr}`);
+  }
+};
+
+// Retry configuration
+interface RetryConfig {
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  retryableErrors: string[];
+}
+
+const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 30000,
+  retryableErrors: [
+    'socket hang up',
+    'ECONNRESET',
+    'ETIMEDOUT',
+    'ECONNREFUSED',
+    'socket connection was closed',
+    'network socket disconnected',
+    'fetch failed'
+  ]
+};
+
+// Check if error is retryable
+const isRetryableError = (error: Error, config: RetryConfig): boolean => {
+  const errorMessage = error.message.toLowerCase();
+  return config.retryableErrors.some(e => errorMessage.includes(e.toLowerCase()));
+};
+
+// Calculate exponential backoff delay
+const calculateBackoffDelay = (attempt: number, config: RetryConfig): number => {
+  const delay = Math.min(
+    config.baseDelayMs * Math.pow(2, attempt) + Math.random() * 1000,
+    config.maxDelayMs
+  );
+  return Math.floor(delay);
+};
+
+// Sleep helper
+const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
 interface GPT5AgentArgs {
   // Required
@@ -203,11 +276,11 @@ export class GPT5AgentTool extends Tool {
       },
       file_path: {
         type: 'string',
-        description: 'Absolute path to a file whose content will be appended to the prompt (max 100KB)'
+        description: 'Absolute path to a file whose content will be appended to the prompt (max 1MB)'
       },
       files: {
         type: 'array',
-        description: 'Multiple files to append to the prompt (max 100KB each, 200KB total)',
+        description: 'Multiple files to append to the prompt (max 1MB each, 5MB total)',
         items: {
           type: 'object',
           properties: {
@@ -519,10 +592,10 @@ export class GPT5AgentTool extends Tool {
     // Check file exists and get stats
     const stats = await fs.stat(filePath);
     
-    // Validate file size (100KB limit for text files)
-    const maxSize = 100 * 1024; // 100KB
+    // Validate file size (1MB limit for text files)
+    const maxSize = 1 * 1024 * 1024; // 1MB
     if (stats.size > maxSize) {
-      throw new Error(`Text file too large: ${filePath} is ${(stats.size / 1024).toFixed(1)}KB (max: 100KB)`);
+      throw new Error(`Text file too large: ${filePath} is ${(stats.size / 1024).toFixed(1)}KB (max: 1MB)`);
     }
     
     // Read file content as UTF-8 text
@@ -610,7 +683,7 @@ export class GPT5AgentTool extends Tool {
         minimal: { maxIterations: 6, maxExecutionSeconds: 120, toolTimeoutSeconds: 20 },
         low: { maxIterations: 8, maxExecutionSeconds: 180, toolTimeoutSeconds: 30 },
         medium: { maxIterations: 10, maxExecutionSeconds: 240, toolTimeoutSeconds: 45 },
-        high: { maxIterations: 12, maxExecutionSeconds: 420, toolTimeoutSeconds: 60 }
+        high: { maxIterations: 12, maxExecutionSeconds: 900, toolTimeoutSeconds: 90 }
       };
 
       const defaults = reasoningDefaults[reasoning_effort];
@@ -639,7 +712,7 @@ export class GPT5AgentTool extends Tool {
       
       // Handle file inputs
       let totalTextFileSize = 0;
-      const maxTextTotalSize = 200 * 1024; // 200KB total limit for text files
+      const maxTextTotalSize = 5 * 1024 * 1024; // 5MB total limit for text files
       const processedFiles: string[] = [];
       
       // Process single file input (backward compatibility)
@@ -684,7 +757,7 @@ export class GPT5AgentTool extends Tool {
               // Check text file size limits
               totalTextFileSize += fileResult.size;
               if (totalTextFileSize > maxTextTotalSize) {
-                throw new Error(`Total text file size exceeds limit: ${(totalTextFileSize / 1024).toFixed(1)}KB (max: 200KB)`);
+                throw new Error(`Total text file size exceeds limit: ${(totalTextFileSize / 1024 / 1024).toFixed(2)}MB (max: 5MB)`);
               }
               
               // Use label if provided, otherwise use filename
@@ -796,14 +869,16 @@ export class GPT5AgentTool extends Tool {
           store: true  // Continue storing for potential future continuations
         };
         
-        // Make API request
+        // Make API request with timeout to prevent socket hang up
+        const fetchTimeoutMs = Math.min(effectiveMaxExecutionSeconds * 1000, 900000); // Max 15 min
         const response = await fetch('https://api.openai.com/v1/responses', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${context.apiKey}`,
           },
-          body: JSON.stringify(request)
+          body: JSON.stringify(request),
+          signal: AbortSignal.timeout(fetchTimeoutMs)
         });
         
         if (!response.ok) {
