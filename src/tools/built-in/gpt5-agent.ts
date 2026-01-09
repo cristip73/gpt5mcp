@@ -1,5 +1,4 @@
 import { Tool, ToolExecutionContext, ToolResult } from '../base.js';
-import fetch from 'node-fetch';
 import { globalToolRegistry } from '../registry.js';
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -1184,7 +1183,7 @@ export class GPT5AgentTool extends Tool {
         };
         
         // Make API request
-        // Background mode: short timeout (30s) - should return ID instantly
+        // Background mode: 30s timeout - should return ID quickly
         // Streaming/Sync: longer timeout for actual response
         const fetchTimeoutMs = useBackground
           ? 30000  // 30s for background - just getting the ID

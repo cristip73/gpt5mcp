@@ -1,4 +1,3 @@
-import fetch from 'node-fetch';
 import { GPT5ResponseRequest, GPT5Response, EnhancedGPT5Response } from './types/responses.js';
 import { ToolCall, ToolResult } from './types/tools.js';
 import { globalToolRegistry } from './tools/registry.js';

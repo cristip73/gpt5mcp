@@ -20,7 +20,6 @@
     "iconv-lite": "^0.6.3",
     "inherits": "^2.0.4",
     "node-domexception": "^1.0.0",
-    "node-fetch": "^3.3.2",
     "raw-body": "^3.0.0",
     "safer-buffer": "^2.1.2",
     "setprototypeof": "^1.2.0",

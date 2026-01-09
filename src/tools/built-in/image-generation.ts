@@ -1,5 +1,4 @@
 import { Tool, ToolExecutionContext, ToolResult } from '../base.js';
-import fetch from 'node-fetch';
 import { promises as fs } from 'fs';
 import path from 'path';
 
@@ -148,7 +147,8 @@ export class ImageGenerationTool extends Tool {
       }
 
       // Save to file
-      const buffer = await response.buffer();
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
       await fs.writeFile(filepath, buffer);
 
       console.error(`Image saved locally: ${filepath}`);
