@@ -38,8 +38,7 @@ const parseSSELine = (line: string): { event?: string; data?: string } => {
 
 // Process streaming response from Responses API
 async function processStreamingResponse(
-  response: any,
-  onProgress?: (text: string) => void
+  response: any
 ): Promise<StreamingAccumulator> {
   const accumulator: StreamingAccumulator = {
     outputText: '',
@@ -62,7 +61,7 @@ async function processStreamingResponse(
   let buffer = '';
   let currentEvent = '';
   let lastActivityTime = Date.now();
-  const ACTIVITY_TIMEOUT = 120000; // 2 minutes without any data = timeout
+  const ACTIVITY_TIMEOUT = 600000; // 10 minutes without any data = timeout (high reasoning can take long)
 
   // Track function call building (arguments come in chunks)
   const pendingFunctionCalls = new Map<number, {
@@ -107,10 +106,11 @@ async function processStreamingResponse(
               case 'response.output_text.delta':
                 if (eventData.delta) {
                   accumulator.outputText += eventData.delta;
-                  if (onProgress) {
-                    onProgress(eventData.delta);
-                  }
                 }
+                break;
+
+              case 'response.output_text.done':
+                // Text output complete - nothing special needed, already accumulated
                 break;
 
               case 'response.output_item.added':
@@ -145,6 +145,16 @@ async function processStreamingResponse(
                 }
                 break;
 
+              case 'response.output_item.done':
+                // Output item complete - finalize any pending function call for this index
+                const itemDoneIdx = eventData.output_index ?? 0;
+                const pendingCall = pendingFunctionCalls.get(itemDoneIdx);
+                if (pendingCall) {
+                  accumulator.toolCalls.push({ ...pendingCall });
+                  pendingFunctionCalls.delete(itemDoneIdx);
+                }
+                break;
+
               case 'response.reasoning_summary_text.delta':
                 if (eventData.delta) {
                   accumulator.reasoningSummary += eventData.delta;
@@ -165,8 +175,24 @@ async function processStreamingResponse(
                 }
                 break;
 
+              case 'response.incomplete':
+                // Response was truncated or incomplete
+                accumulator.done = true;
+                accumulator.error = eventData.response?.incomplete_details?.reason || 'Response incomplete';
+                if (eventData.response?.usage) {
+                  const usage = eventData.response.usage;
+                  accumulator.usage.inputTokens = usage.input_tokens || 0;
+                  accumulator.usage.outputTokens = usage.output_tokens || 0;
+                  accumulator.usage.reasoningTokens = usage.output_tokens_details?.reasoning_tokens || 0;
+                }
+                if (eventData.response?.id && !accumulator.responseId) {
+                  accumulator.responseId = eventData.response.id;
+                }
+                break;
+
               case 'error':
-                accumulator.error = eventData.message || JSON.stringify(eventData);
+              case 'response.error':
+                accumulator.error = eventData.message || eventData.error?.message || JSON.stringify(eventData);
                 accumulator.done = true;
                 break;
             }
@@ -760,7 +786,6 @@ export class GPT5AgentTool extends Tool {
         max_iterations,
         max_execution_time_seconds,
         tool_timeout_seconds,
-        show_preambles = true,
         show_reasoning_summary = true,
         context: taskContext,
         quality_over_cost = false,
@@ -941,10 +966,10 @@ export class GPT5AgentTool extends Tool {
       let totalOutputTokens = 0;
       let totalReasoningTokens = 0;
       const toolCallRecords: Array<{tool: string; arguments: any; result: any; status: string}> = [];
-      const statusUpdates: string[] = [];
       let previousResponseId: string | undefined = args.previous_response_id;
       let finalOutput = '';
       let reasoningSummary = '';
+      let pendingToolOutputs: Array<any> = []; // Tool outputs to send in next iteration
       
       // Agent loop
       while (iterations < effectiveMaxIterations) {
@@ -959,10 +984,10 @@ export class GPT5AgentTool extends Tool {
           };
         }
         
-        // Prepare request
+        // Prepare request - use pending tool outputs from previous iteration
         const request: ResponsesAPIRequest = iterations === 1 ? initialRequest : {
           model,
-          input: [], // Will be populated with tool outputs
+          input: pendingToolOutputs, // Tool outputs from previous iteration
           previous_response_id: previousResponseId,
           ...(isReasoningModel && {
             reasoning: {
@@ -1148,9 +1173,9 @@ export class GPT5AgentTool extends Tool {
           });
         }
         
-        // Set up next iteration with tool outputs
+        // Store tool outputs for next iteration
         if (toolOutputs.length > 0 && iterations < effectiveMaxIterations) {
-          request.input = toolOutputs;
+          pendingToolOutputs = toolOutputs;
         } else if (toolOutputs.length > 0) {
           break;
         }
@@ -1183,19 +1208,6 @@ export class GPT5AgentTool extends Tool {
       parts.push(`**Max Iterations Allowed**: ${effectiveMaxIterations}\n`);
       parts.push(`**Time Budget**: ${effectiveMaxExecutionSeconds}s\n`);
       parts.push(`**Tool Timeout**: ${(effectiveToolTimeoutMs / 1000).toFixed(0)}s\n\n`);
-      
-      // Status updates (limited)
-      if (statusUpdates.length > 0 && show_preambles) {
-        parts.push(`### 📊 Status Updates\n`);
-        const maxUpdates = Math.min(statusUpdates.length, 5); // Limit to 5 updates
-        for (let i = 0; i < maxUpdates; i++) {
-          parts.push(`${i + 1}. ${statusUpdates[i]}\n`);
-        }
-        if (statusUpdates.length > maxUpdates) {
-          parts.push(`... and ${statusUpdates.length - maxUpdates} more updates\n`);
-        }
-        parts.push('\n');
-      }
       
       // Main result (priority content)
       if (finalOutput && finalOutput.trim()) {
