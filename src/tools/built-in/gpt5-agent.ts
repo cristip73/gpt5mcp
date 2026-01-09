@@ -1,82 +1,202 @@
 import { Tool, ToolExecutionContext, ToolResult } from '../base.js';
-import fetch, { RequestInit } from 'node-fetch';
-import http from 'http';
-import https from 'https';
+import fetch from 'node-fetch';
 import { globalToolRegistry } from '../registry.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 
-// Keep-alive agents to prevent socket hang up errors
-// See: https://github.com/node-fetch/node-fetch/issues/1735
-const httpAgent = new http.Agent({
-  keepAlive: true,
-  keepAliveMsecs: 30000,
-  maxSockets: 10,
-  timeout: 0  // Disable socket timeout, we'll handle it ourselves
-});
-const httpsAgent = new https.Agent({
-  keepAlive: true,
-  keepAliveMsecs: 30000,
-  maxSockets: 10,
-  timeout: 0
-});
-
-// Diagnostic logging helper
-const logDiagnostic = (level: 'info' | 'warn' | 'error', message: string, data?: Record<string, any>) => {
-  const timestamp = new Date().toISOString();
-  const prefix = `[GPT5-Agent ${timestamp}]`;
-  const dataStr = data ? ` ${JSON.stringify(data)}` : '';
-
-  if (level === 'error') {
-    console.error(`${prefix} ERROR: ${message}${dataStr}`);
-  } else if (level === 'warn') {
-    console.warn(`${prefix} WARN: ${message}${dataStr}`);
-  } else {
-    console.log(`${prefix} INFO: ${message}${dataStr}`);
-  }
-};
-
-// Retry configuration
-interface RetryConfig {
-  maxRetries: number;
-  baseDelayMs: number;
-  maxDelayMs: number;
-  retryableErrors: string[];
+// Streaming response accumulator
+interface StreamingAccumulator {
+  outputText: string;
+  reasoningSummary: string;
+  responseId: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    reasoningTokens: number;
+  };
+  toolCalls: Array<{
+    id: string;
+    callId: string;
+    name: string;
+    arguments: string;
+  }>;
+  done: boolean;
+  error?: string;
 }
 
-const DEFAULT_RETRY_CONFIG: RetryConfig = {
-  maxRetries: 3,
-  baseDelayMs: 1000,
-  maxDelayMs: 30000,
-  retryableErrors: [
-    'socket hang up',
-    'ECONNRESET',
-    'ETIMEDOUT',
-    'ECONNREFUSED',
-    'socket connection was closed',
-    'network socket disconnected',
-    'fetch failed'
-  ]
+// Parse SSE line into event data
+const parseSSELine = (line: string): { event?: string; data?: string } => {
+  if (line.startsWith('event:')) {
+    return { event: line.slice(6).trim() };
+  }
+  if (line.startsWith('data:')) {
+    return { data: line.slice(5).trim() };
+  }
+  return {};
 };
 
-// Check if error is retryable
-const isRetryableError = (error: Error, config: RetryConfig): boolean => {
-  const errorMessage = error.message.toLowerCase();
-  return config.retryableErrors.some(e => errorMessage.includes(e.toLowerCase()));
-};
+// Process streaming response from Responses API
+async function processStreamingResponse(
+  response: any,
+  onProgress?: (text: string) => void
+): Promise<StreamingAccumulator> {
+  const accumulator: StreamingAccumulator = {
+    outputText: '',
+    reasoningSummary: '',
+    responseId: '',
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0
+    },
+    toolCalls: [],
+    done: false
+  };
 
-// Calculate exponential backoff delay
-const calculateBackoffDelay = (attempt: number, config: RetryConfig): number => {
-  const delay = Math.min(
-    config.baseDelayMs * Math.pow(2, attempt) + Math.random() * 1000,
-    config.maxDelayMs
-  );
-  return Math.floor(delay);
-};
+  const body = response.body;
+  if (!body) {
+    throw new Error('No response body for streaming');
+  }
 
-// Sleep helper
-const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+  let buffer = '';
+  let currentEvent = '';
+  let lastActivityTime = Date.now();
+  const ACTIVITY_TIMEOUT = 120000; // 2 minutes without any data = timeout
+
+  // Track function call building (arguments come in chunks)
+  const pendingFunctionCalls = new Map<number, {
+    id: string;
+    callId: string;
+    name: string;
+    arguments: string;
+  }>();
+
+  try {
+    for await (const chunk of body) {
+      lastActivityTime = Date.now();
+      const text = chunk.toString();
+      buffer += text;
+
+      // Process complete lines
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (!trimmedLine) continue;
+
+        const parsed = parseSSELine(trimmedLine);
+
+        if (parsed.event) {
+          currentEvent = parsed.event;
+        }
+
+        if (parsed.data) {
+          try {
+            const eventData = JSON.parse(parsed.data);
+
+            // Handle different event types
+            switch (currentEvent) {
+              case 'response.created':
+                if (eventData.response?.id) {
+                  accumulator.responseId = eventData.response.id;
+                }
+                break;
+
+              case 'response.output_text.delta':
+                if (eventData.delta) {
+                  accumulator.outputText += eventData.delta;
+                  if (onProgress) {
+                    onProgress(eventData.delta);
+                  }
+                }
+                break;
+
+              case 'response.output_item.added':
+                // New output item - could be message, function_call, etc.
+                if (eventData.item?.type === 'function_call') {
+                  const idx = eventData.output_index ?? 0;
+                  pendingFunctionCalls.set(idx, {
+                    id: eventData.item.id || '',
+                    callId: eventData.item.call_id || '',
+                    name: eventData.item.name || '',
+                    arguments: ''
+                  });
+                }
+                break;
+
+              case 'response.function_call_arguments.delta':
+                // Accumulate function call arguments
+                const fcIdx = eventData.output_index ?? 0;
+                const pending = pendingFunctionCalls.get(fcIdx);
+                if (pending && eventData.delta) {
+                  pending.arguments += eventData.delta;
+                }
+                break;
+
+              case 'response.function_call_arguments.done':
+                // Function call arguments complete
+                const doneIdx = eventData.output_index ?? 0;
+                const completedCall = pendingFunctionCalls.get(doneIdx);
+                if (completedCall) {
+                  accumulator.toolCalls.push({ ...completedCall });
+                  pendingFunctionCalls.delete(doneIdx);
+                }
+                break;
+
+              case 'response.reasoning_summary_text.delta':
+                if (eventData.delta) {
+                  accumulator.reasoningSummary += eventData.delta;
+                }
+                break;
+
+              case 'response.completed':
+              case 'response.done':
+                accumulator.done = true;
+                if (eventData.response?.usage) {
+                  const usage = eventData.response.usage;
+                  accumulator.usage.inputTokens = usage.input_tokens || 0;
+                  accumulator.usage.outputTokens = usage.output_tokens || 0;
+                  accumulator.usage.reasoningTokens = usage.output_tokens_details?.reasoning_tokens || 0;
+                }
+                if (eventData.response?.id && !accumulator.responseId) {
+                  accumulator.responseId = eventData.response.id;
+                }
+                break;
+
+              case 'error':
+                accumulator.error = eventData.message || JSON.stringify(eventData);
+                accumulator.done = true;
+                break;
+            }
+          } catch (parseError) {
+            // Skip malformed JSON, could be [DONE] marker
+            if (parsed.data === '[DONE]') {
+              accumulator.done = true;
+            }
+          }
+        }
+      }
+
+      // Check for activity timeout (heartbeat)
+      if (Date.now() - lastActivityTime > ACTIVITY_TIMEOUT) {
+        throw new Error(`Streaming timeout: no data received for ${ACTIVITY_TIMEOUT / 1000}s`);
+      }
+    }
+  } catch (streamError: any) {
+    if (!accumulator.done) {
+      accumulator.error = streamError.message || 'Stream error';
+    }
+  }
+
+  // Finalize any pending function calls that weren't explicitly closed
+  for (const [, call] of pendingFunctionCalls) {
+    accumulator.toolCalls.push(call);
+  }
+
+  return accumulator;
+}
 
 interface GPT5AgentArgs {
   // Required
@@ -141,22 +261,6 @@ interface ResponsesAPIRequest {
   max_output_tokens?: number;
   stream?: boolean;
   store?: boolean;
-}
-
-interface ResponsesAPIResponse {
-  id: string;
-  object: string;
-  created: number;
-  model: string;
-  output: Array<any>;
-  output_text?: string;
-  reasoning_summary?: string;
-  usage?: {
-    input_tokens: number;
-    output_tokens: number;
-    reasoning_tokens?: number;
-    total_tokens: number;
-  };
 }
 
 export class GPT5AgentTool extends Tool {
@@ -803,6 +907,11 @@ export class GPT5AgentTool extends Tool {
       // Check if model supports reasoning (non-reasoning models like gpt-5.1-chat-latest don't, also reasoning_effort='none' means no reasoning)
       const isReasoningModel = model !== 'gpt-5.1-chat-latest' && adaptiveReasoningEffort !== 'none';
 
+      // Use streaming for low/medium/high reasoning to prevent Cloudflare timeout (60s)
+      // Streaming keeps the connection alive with periodic data chunks
+      // Only none/minimal are fast enough to skip streaming
+      const useStreaming = ['low', 'medium', 'high'].includes(adaptiveReasoningEffort);
+
       // Initial request to Responses API with multimodal content support
       const initialRequest: ResponsesAPIRequest = {
         model,
@@ -821,7 +930,7 @@ export class GPT5AgentTool extends Tool {
           verbosity
         },
         max_output_tokens: maxOutputTokens,
-        stream: false,
+        stream: useStreaming,
         store: !args.previous_response_id,  // Store new conversations for continuation
         previous_response_id: args.previous_response_id  // Use provided ID if continuing
       } as ResponsesAPIRequest;
@@ -865,7 +974,7 @@ export class GPT5AgentTool extends Tool {
             verbosity
           },
           max_output_tokens: maxOutputTokens,
-          stream: false,
+          stream: useStreaming,
           store: true  // Continue storing for potential future continuations
         };
         
@@ -880,7 +989,7 @@ export class GPT5AgentTool extends Tool {
           body: JSON.stringify(request),
           signal: AbortSignal.timeout(fetchTimeoutMs)
         });
-        
+
         if (!response.ok) {
           const errorText = await response.text();
           let errorMessage = `Responses API error: ${response.status} ${response.statusText}`;
@@ -894,60 +1003,99 @@ export class GPT5AgentTool extends Tool {
           }
           throw new Error(errorMessage);
         }
-        
-        // Check response size before parsing to prevent memory issues
-        const contentLength = response.headers.get('content-length');
-        const MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10MB limit
-        
-        if (contentLength && parseInt(contentLength) > MAX_RESPONSE_SIZE) {
-          throw new Error(`Response too large: ${(parseInt(contentLength) / 1024 / 1024).toFixed(1)}MB (max: ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`);
-        }
-        
-        const data = await response.json() as any;
-        
-        // Store response ID for next iteration
-        previousResponseId = data.id;
-        
-        // Update token usage and detect reasoning overflow
-        if (data.usage) {
-          totalInputTokens += data.usage.input_tokens || 0;
-          totalOutputTokens += data.usage.output_tokens || 0;
-          totalReasoningTokens += data.usage.output_tokens_details?.reasoning_tokens || 0;
-          
-          // Detect reasoning token overflow (from real user research)
-          const reasoningTokens = data.usage.output_tokens_details?.reasoning_tokens || 0;
-          const outputTokens = data.usage.output_tokens || 0;
-          const overflowRatio = outputTokens > 0 ? reasoningTokens / outputTokens : 0;
-          
-          if (overflowRatio > 0.9) {
-            console.warn(`⚠️  Reasoning token overflow detected: ${reasoningTokens} reasoning vs ${outputTokens} output tokens (${(overflowRatio * 100).toFixed(1)}% reasoning)`);
-          }
-        }
-        
-        // Extract reasoning summary if available
-        if (data.reasoning_summary) {
-          reasoningSummary = data.reasoning_summary;
-        }
-        
-        // Process output items for tool calls
-        const toolCalls = [];
+
+        // Process response based on streaming mode
+        let data: any;
+        const toolCalls: Array<any> = [];
         let hasMessage = false;
-        
-        // Check for tool calls in output array
-        if (data.output && Array.isArray(data.output)) {
-          for (const item of data.output) {
-            // Check for tool calls
-            if (item.type === 'function_call') {
-              toolCalls.push(item);
+
+        if (useStreaming) {
+          // Process streaming response - accumulates silently without chat output
+          const streamResult = await processStreamingResponse(response);
+
+          if (streamResult.error) {
+            throw new Error(`Streaming error: ${streamResult.error}`);
+          }
+
+          // Convert streaming result to data format compatible with rest of code
+          previousResponseId = streamResult.responseId;
+
+          // Update token usage
+          totalInputTokens += streamResult.usage.inputTokens;
+          totalOutputTokens += streamResult.usage.outputTokens;
+          totalReasoningTokens += streamResult.usage.reasoningTokens;
+
+          // Extract reasoning summary
+          if (streamResult.reasoningSummary) {
+            reasoningSummary = streamResult.reasoningSummary;
+          }
+
+          // Extract output text
+          if (streamResult.outputText.trim()) {
+            finalOutput = streamResult.outputText;
+            hasMessage = true;
+          }
+
+          // Convert tool calls to expected format
+          for (const tc of streamResult.toolCalls) {
+            toolCalls.push({
+              type: 'function_call',
+              id: tc.id,
+              call_id: tc.callId,
+              name: tc.name,
+              arguments: tc.arguments
+            });
+          }
+        } else {
+          // Non-streaming: check response size before parsing
+          const contentLength = response.headers.get('content-length');
+          const MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10MB limit
+
+          if (contentLength && parseInt(contentLength) > MAX_RESPONSE_SIZE) {
+            throw new Error(`Response too large: ${(parseInt(contentLength) / 1024 / 1024).toFixed(1)}MB (max: ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`);
+          }
+
+          data = await response.json() as any;
+
+          // Store response ID for next iteration
+          previousResponseId = data.id;
+
+          // Update token usage and detect reasoning overflow
+          if (data.usage) {
+            totalInputTokens += data.usage.input_tokens || 0;
+            totalOutputTokens += data.usage.output_tokens || 0;
+            totalReasoningTokens += data.usage.output_tokens_details?.reasoning_tokens || 0;
+
+            // Detect reasoning token overflow
+            const reasoningTokens = data.usage.output_tokens_details?.reasoning_tokens || 0;
+            const outputTokens = data.usage.output_tokens || 0;
+            const overflowRatio = outputTokens > 0 ? reasoningTokens / outputTokens : 0;
+
+            if (overflowRatio > 0.9) {
+              console.warn(`⚠️  Reasoning token overflow detected: ${reasoningTokens} reasoning vs ${outputTokens} output tokens (${(overflowRatio * 100).toFixed(1)}% reasoning)`);
             }
           }
-        }
-        
-        // Extract the actual text output using our helper function
-        const extractedText = this.extractOutputText(data);
-        if (extractedText) {
-          finalOutput = extractedText;
-          hasMessage = true;
+
+          // Extract reasoning summary if available
+          if (data.reasoning_summary) {
+            reasoningSummary = data.reasoning_summary;
+          }
+
+          // Check for tool calls in output array
+          if (data.output && Array.isArray(data.output)) {
+            for (const item of data.output) {
+              if (item.type === 'function_call') {
+                toolCalls.push(item);
+              }
+            }
+          }
+
+          // Extract the actual text output using our helper function
+          const extractedText = this.extractOutputText(data);
+          if (extractedText) {
+            finalOutput = extractedText;
+            hasMessage = true;
+          }
         }
         
         // If no tool calls and has message, we're done
