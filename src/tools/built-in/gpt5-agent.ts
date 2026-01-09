@@ -848,18 +848,22 @@ Each poll should wait 5-10 seconds before retrying.`;
       store: true
     };
 
-    console.error(`[START] 🚀 Submitting background job...`);
+    console.error(`[START] 🚀 Submitting background job to OpenAI...`);
+    console.error(`[START] Request: model=${model}, reasoning=${reasoningEffort}, web_search=${args.enable_web_search}`);
 
     try {
+      // No timeout signal - let it complete naturally
+      // The POST with background:true should return instantly with just an ID
       const response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${context.apiKey}`
         },
-        body: JSON.stringify(request),
-        signal: AbortSignal.timeout(15000) // 15s timeout - should return instantly
+        body: JSON.stringify(request)
       });
+
+      console.error(`[START] Response status: ${response.status}`);
 
       if (!response.ok) {
         const errorText = await response.text();
