@@ -43,7 +43,7 @@ interface GPT5CodexArgs {
 
 export class GPT5CodexTool extends Tool {
   name = 'gpt5_codex';
-  description = 'Runs Codex CLI exec jobs with GPT-5.1-Codex-Max (default), GPT-5.2, or other models. Supports reasoning levels: low, medium, high, extra_high';
+  description = 'Runs Codex CLI exec jobs with gpt-5.2-codex (default) or other models. Supports reasoning levels: low, medium, high, extra_high';
   type = 'function' as const;
 
   parameters = {
@@ -52,8 +52,8 @@ export class GPT5CodexTool extends Tool {
       task: { type: 'string', description: 'Task prompt for Codex CLI exec' },
       model: {
         type: 'string',
-        description: 'Model id (e.g., gpt-5.1-codex-max, gpt-5.2, gpt-5.1-codex, gpt-5.1-codex-mini, o3, o4-mini)',
-        default: 'gpt-5.1-codex-max'
+        description: 'Model id (e.g., gpt-5.2-codex, gpt-5.1-codex-max, gpt-5.2, gpt-5.1-codex, gpt-5.1-codex-mini, o3, o4-mini)',
+        default: 'gpt-5.2-codex'
       },
       profile: { type: 'string', description: 'Codex CLI config profile' },
       reasoning_effort: {
@@ -245,7 +245,7 @@ export class GPT5CodexTool extends Tool {
     const start = Date.now();
     const {
       task,
-      model = 'gpt-5.1-codex-max',
+      model = 'gpt-5.2-codex',
       profile,
       reasoning_effort = 'medium',
       verbosity,
