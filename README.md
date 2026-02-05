@@ -8,7 +8,15 @@ MCP server for OpenAI GPT-5 API integration with Claude Code. Provides `gpt5_age
 
 ```bash
 npm install -g gpt5mcp
+
+# Basic (gpt5_agent only)
 claude mcp add gpt5mcp -e OPENAI_API_KEY=sk-... -- gpt5mcp
+
+# Full (with gpt5_codex support)
+claude mcp add gpt5mcp \
+  -e OPENAI_API_KEY=sk-... \
+  -e CODEX_BIN=$(which codex) \
+  -- gpt5mcp
 ```
 
 ### Option B: From source
@@ -19,8 +27,10 @@ cd gpt5mcp
 npm install
 npm run build
 
-# Add to Claude Code
-claude mcp add gpt5mcp -e OPENAI_API_KEY=sk-... -- node /absolute/path/to/gpt5mcp/build/index.js
+claude mcp add gpt5mcp \
+  -e OPENAI_API_KEY=sk-... \
+  -e CODEX_BIN=$(which codex) \
+  -- node /absolute/path/to/gpt5mcp/build/index.js
 ```
 
 ### Option C: Manual config
@@ -30,15 +40,29 @@ Create/edit `~/.claude/.mcp.json`:
 {
   "mcpServers": {
     "gpt5mcp": {
-      "command": "node",
-      "args": ["/absolute/path/to/gpt5mcp/build/index.js"],
+      "command": "gpt5mcp",
       "env": {
         "OPENAI_API_KEY": "sk-...",
-        "CODEX_BIN": "/opt/homebrew/bin/codex"
+        "CODEX_BIN": "/path/from/which/codex"
       }
     }
   }
 }
+```
+
+### Codex CLI Setup (for `gpt5_codex` tool)
+
+The `gpt5_codex` tool requires OpenAI's Codex CLI. Skip this if you only need `gpt5_agent`.
+
+```bash
+# Install Codex CLI
+npm install -g @openai/codex
+
+# Find the path
+which codex
+# Example output: /usr/local/bin/codex
+
+# Use this path for CODEX_BIN
 ```
 
 ### Verify
@@ -192,8 +216,17 @@ claude mcp add gpt5mcp -e OPENAI_API_KEY=sk-... -- gpt5mcp
 - SSE streaming handles long-running requests
 
 **Codex not working:**
-- Install Codex CLI: check `CODEX_BIN` environment variable
-- Image support disabled in Codex (known CLI limitation)
+```bash
+# 1. Install Codex CLI
+npm install -g @openai/codex
+
+# 2. Find path
+which codex
+
+# 3. Re-add MCP with correct path
+claude mcp remove gpt5mcp
+claude mcp add gpt5mcp -e OPENAI_API_KEY=sk-... -e CODEX_BIN=$(which codex) -- gpt5mcp
+```
 
 ## Credits
 
