@@ -1,238 +1,163 @@
 # GPT-5 MCP Server
 
-A powerful Model Context Protocol (MCP) server providing direct access to OpenAI's GPT-5 API with advanced tool capabilities. Built for Claude Code with selective tool activation.
+A Model Context Protocol (MCP) server providing access to OpenAI's GPT-5 API with SSE streaming and tool orchestration. Built for Claude Code.
 
-## 🚀 Quick Setup
+## Quick Setup
 
-1. **Install dependencies**: `npm install`
-2. **Build**: `npm run build` 
-3. **Configure API key**: Add `OPENAI_API_KEY=your-key` to `.env`
-4. **Add to Claude Code**: `claude mcp add gpt5-server -e OPENAI_API_KEY=your-key -- node /path/to/build/index.js`
-
-## 🔥 Active Tools
-
-### GPT-5 Agent
-**`mcp__gpt5-server__gpt5_agent`** - Autonomous agent with tool orchestration and persistent reasoning
-
-Execute complex multi-step tasks with GPT-5's reasoning capabilities. The agent can use tools, maintain conversation state, and iterate through problems autonomously.
-
-**Parameters:**
-- `task` (required) - High-level task description for the agent to complete
-- `model` - Model variant: `gpt-5` (default), `gpt-5-mini`, `gpt-5-nano`
-- `reasoning_effort` - Reasoning depth: `minimal`, `low`, `medium` (default), `high`
-- `verbosity` - Output length: `low`, `medium` (default), `high`
-- `max_iterations` - Maximum agent loop iterations (default: 10, max: 20)
-- `system_prompt` - Additional system instructions for the agent
-- `context` - Additional context for the task
-- `previous_response_id` - Continue from a previous conversation
-- `quality_over_cost` - Maximize quality regardless of token cost (default: false)
-- `show_preambles` - Show status updates between tool calls (default: true)
-- `show_reasoning_summary` - Include reasoning summary (default: true)
-- `enable_web_search` - Enable web search capability (default: true) - provides real-time information
-- `enable_file_operations` - Enable file operations capability (default: false)
-- `enable_code_interpreter` - Enable code interpreter capability (default: false)
-- `save_to_file` - Save output to markdown file in `gpt5_docs/` folder (default: true)
-- `display_in_chat` - Display full output in chat response (default: true)
-
-**File Output Behavior:**
-The agent automatically saves outputs to `gpt5_docs/` folder with the following behavior:
-
-| save_to_file | display_in_chat | Result |
-|--------------|-----------------|--------|
-| true (default) | true (default) | Output shown in chat + saved to file |
-| true | false | Only metadata shown, full output in file (saves tokens) |
-| false | true | Output shown in chat only, no file created |
-| false | false | Output shown in chat only (ignores display flag) |
-
-Files are named: `agent_YYYYMMDD_HHMMSS_task-slug.md` with full output and metadata.
-
-**Examples:**
-
-```json
-{
-  "task": "Create a Python script that analyzes CSV data",
-  "reasoning_effort": "high",
-  "enable_code_interpreter": true,
-  "quality_over_cost": true
-}
+```bash
+npm install
+npm run build
 ```
 
+Configure `.env`:
+```
+OPENAI_API_KEY=sk-...
+CODEX_BIN=/opt/homebrew/bin/codex  # Optional, for gpt5_codex
+```
+
+Add to Claude Code:
+```bash
+claude mcp add gpt5-server -e OPENAI_API_KEY=sk-... -- node /path/to/build/index.js
+```
+
+## Active Tools
+
+### GPT-5 Agent (`gpt5_agent`)
+
+Autonomous agent with SSE streaming that solves complex multi-step tasks. Supports tool orchestration, web search, code interpreter, and file operations.
+
+**Key Parameters:**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `task` | required | Task description |
+| `model` | `gpt-5.2` | Model: `gpt-5.2`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-nano` |
+| `reasoning_effort` | `medium` | `none`, `minimal`, `low`, `medium`, `high` |
+| `verbosity` | `medium` | `low`, `medium`, `high` |
+| `max_iterations` | 10 | Max agent loops (1-20) |
+| `enable_web_search` | true | Enable web search |
+| `enable_code_interpreter` | false | Enable code execution |
+| `enable_file_operations` | false | Enable file read/write |
+| `save_to_file` | true | Save output to `gpt5_docs/` |
+| `previous_response_id` | - | Continue previous conversation |
+
+**Examples:**
 ```json
 {
-  "task": "Research the top 10 JavaScript frameworks",
-  "display_in_chat": false,
+  "task": "Research the latest AI developments in 2026",
+  "reasoning_effort": "high",
   "enable_web_search": true
 }
 ```
 
 ```json
 {
-  "task": "Quick calculation: what is 15% of 2500?",
-  "save_to_file": false,
-  "reasoning_effort": "minimal"
+  "task": "Analyze this Python code for performance issues",
+  "file_path": "/path/to/code.py",
+  "enable_code_interpreter": true
 }
 ```
 
-### Image Generation
-**`mcp__gpt5-server__image_generation`** - Generate high-quality images using DALL-E 3 or GPT-4o
+### GPT-5 Codex (`gpt5_codex`)
 
-Create stunning images from text descriptions with advanced AI models. Images are automatically saved to `_IMAGES` folder.
+Deep code analysis via Codex CLI. Spawns `codex` binary for autonomous code editing.
 
-**Parameters:**
-- `prompt` (required) - Text description of desired image (max 4000 chars)
-- `model` - Generation model: `gpt-image-1` (default, high quality/higher cost), `dall-e-3` (medium quality/lower cost)
-- `size` - Image dimensions:
-  - DALL-E 3: `1024x1024` (default), `1024x1792` (portrait), `1792x1024` (landscape)
-  - GPT-Image-1: `1024x1024` (default), `1024x1536` (portrait), `1536x1024` (landscape), `auto`
-- `quality` - Image quality (DALL-E 3 only): `standard` (default), `hd`
-- `style` - DALL-E 3 only: `vivid` (default), `natural`
-- `n` - Number of images (currently only 1 supported)
+**Key Parameters:**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `prompt` | required | Task for Codex |
+| `model` | `gpt-5.2-codex` | Model: `gpt-5.2-codex`, `gpt-5.1-codex`, `o3`, `o4-mini` |
+| `reasoning` | `medium` | `low`, `medium`, `high`, `extra_high` |
+| `edit_mode` | `auto_edit` | `research`, `auto_edit`, `full_auto`, `dangerous` |
+| `file_path` | - | Single file input (100KB max) |
+| `files` | - | Multiple files (200KB total) |
+| `output_format` | `standard` | `standard` (with metadata) or `clean` |
+
+**Edit Modes:**
+- `research` - Read-only analysis, no file changes
+- `auto_edit` - Prompts before each edit
+- `full_auto` - Auto-applies safe edits
+- `dangerous` - No restrictions (use with caution)
 
 **Example:**
 ```json
 {
-  "prompt": "A futuristic cityscape at sunset with flying cars and neon lights reflecting off glass buildings",
-  "model": "dall-e-3",
-  "size": "1792x1024",
-  "quality": "hd",
-  "style": "vivid"
+  "prompt": "Refactor this module to use async/await",
+  "file_path": "/path/to/module.ts",
+  "reasoning": "high",
+  "edit_mode": "auto_edit"
 }
 ```
 
-## 💤 Inactive Tools
+## Inactive Tools
 
-The following tools are available in the codebase but **disabled by default** for performance:
+Disabled by default for performance. Enable in `src/tools/index.ts`:
 
-### GPT-5 Messages
-**`mcp__gpt5-server__gpt5_messages`** - Direct GPT-5 API access with structured conversations
-- `messages` (required) - Array of conversation messages with role and content
-- `model` - Model variant: `gpt-5` (default), `gpt-5-mini`, `gpt-5-nano`
-- `instructions` - System instructions to guide model behavior
-- `reasoning_effort` - Reasoning depth: `low`, `medium`, `high`
-- `enable_tools` - Enable tool calling capabilities
+| Tool | Description |
+|------|-------------|
+| `web_search` | Web search via OpenAI Responses API |
+| `file_operations` | File read/write/delete |
+| `code_interpreter` | Execute Python/JavaScript |
+| `image_generation` | DALL-E 3 / GPT-Image-1 |
+| `function_definition` | Define custom reusable functions |
 
-### Web Search
-**`mcp__gpt5-server__web_search`** - Search the web for current information
-- `query` (required) - Search query
-- `max_results` - Number of results (default: 5, max: 10)
-- `time_range` - Time filter: `day`, `week`, `month` (default), `year`
-
-### File Operations
-**`mcp__gpt5-server__file_operations`** - File system operations
-- `operation` (required) - Operation type: `read`, `write`, `list`, `delete`, `exists`
-- `path` (required) - File or directory path
-- `content` - Content to write (for write operation)
-- `encoding` - File encoding: `utf8` (default), `base64`
-
-### Code Interpreter
-**`mcp__gpt5-server__code_interpreter`** - Execute code in secure environment
-- `code` (required) - Code to execute
-- `language` - Programming language: `python` (default), `javascript`
-- `timeout` - Request timeout in seconds (default: 30, max: 120)
-
-### Function Definition Tools
-**Custom JavaScript functions for reuse:**
-- `mcp__gpt5-server__define_function` - Define custom functions
-- `mcp__gpt5-server__list_functions` - List defined functions
-- `mcp__gpt5-server__execute_function` - Execute custom functions
-
-## ⚙️ Tool Configuration
-
-### Enable Additional Tools
-
-Edit `src/tools/index.ts` to activate tools:
-
+**To enable:**
 ```typescript
+// src/tools/index.ts
 const ACTIVE_TOOLS = {
-  web_search: true,          // Enable web search
-  file_operations: true,     // Enable file operations
-  code_interpreter: true,    // Enable code execution
-  image_generation: true,    // Already active
-  gpt5_agent: true,         // Already active
-} as const;
+  gpt5_agent: true,
+  gpt5_codex: true,
+  image_generation: true,  // ← set to true
+  // ...
+};
 ```
+Then: `npm run build` and restart Claude Code.
 
-After changes: `npm run build` and restart Claude Code.
+## Architecture
 
-### Programmatic Control
-
-```typescript
-import { setToolStatus } from './tools/index.js';
-
-// Enable web search
-setToolStatus('web_search', true);
-
-// Disable image generation
-setToolStatus('image_generation', false);
-```
-
-## 🎯 Usage Examples
-
-### Complex Task Automation
-```json
-{
-  "task": "Analyze the performance of my Python application and suggest optimizations",
-  "enable_file_operations": true,
-  "enable_code_interpreter": true,
-  "reasoning_effort": "high",
-  "max_iterations": 15
-}
-```
-
-### Creative Image Generation
-```json
-{
-  "prompt": "An abstract representation of artificial intelligence, featuring interconnected neural networks with glowing nodes, rendered in a cyberpunk aesthetic with electric blues and purples",
-  "model": "gpt-image-1",
-  "quality": "high",
-  "size": "1536x1024"
-}
-```
-
-
-## 🛠 Development
-
-### Build & Run
-```bash
-npm run build    # Compile TypeScript
-npm start        # Start server
-```
-
-### Project Structure
 ```
 src/
-├── index.ts              # MCP server implementation
+├── index.ts              # MCP server entry point
 ├── utils.ts              # GPT-5 API utilities
-├── types/               # TypeScript definitions
-├── tools/
-│   ├── index.ts         # Tool registration & config
-│   ├── registry.ts      # Tool registry system
-│   ├── base.ts          # Base tool classes
-│   └── built-in/        # Individual tool implementations
-│       ├── gpt5-agent.ts
-│       ├── image-generation.ts
-│       ├── web-search.ts
-│       └── ...
+├── types/
+│   ├── responses.ts      # API response types
+│   └── tools.ts          # Tool interface definitions
+└── tools/
+    ├── index.ts          # Tool registration & activation
+    ├── registry.ts       # Tool registry (singleton)
+    ├── base.ts           # Base tool class
+    └── built-in/
+        ├── gpt5-agent.ts     # ✅ Active
+        ├── gpt5-codex.ts     # ✅ Active
+        ├── web-search.ts
+        ├── file-operations.ts
+        ├── code-interpreter.ts
+        ├── image-generation.ts
+        └── function-definition.ts
 ```
 
-## 🔧 Troubleshooting
+## Streaming Implementation
 
-### Server not found
+GPT-5 Agent uses SSE (Server-Sent Events) to prevent MCP timeout:
+- Activity timeout: 120 seconds without data
+- Request timeout: up to 15 minutes for complex tasks
+- Activated when `reasoning_effort` is not `none` or `minimal`
+
+## Troubleshooting
+
+**Server not found:**
 ```bash
 claude mcp remove gpt5-server
-claude mcp add gpt5-server -e OPENAI_API_KEY=your-key -- node /path/to/build/index.js
+claude mcp add gpt5-server -e OPENAI_API_KEY=sk-... -- node /path/to/build/index.js
 ```
 
-### API key issues
-- Verify GPT-5 API access with OpenAI
-- Check `.env` file contains `OPENAI_API_KEY=your-key`
-- Ensure correct environment path in `src/index.ts`
+**Socket hang up errors:**
+- Ensure `.mcp.json` points to `build/index.js` (not `dist/`)
+- SSE streaming handles long-running requests
 
-### Tool not available
-- Check `ACTIVE_TOOLS` configuration in `src/tools/index.ts`
-- Run `npm run build` after changes
-- Restart Claude Code MCP server
+**Codex not working:**
+- Install Codex CLI: check `CODEX_BIN` environment variable
+- Image support disabled in Codex (known CLI limitation)
 
 ---
 
-**Built with MCP by Anthropic • Powered by OpenAI GPT-5**
+**Built with MCP • Powered by OpenAI GPT-5**
