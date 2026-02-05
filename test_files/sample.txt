@@ -1,3 +1,0 @@
-This is a test text file for GPT-5 agent.
-It contains multiple lines of text.
-Testing backward compatibility with text file handling.

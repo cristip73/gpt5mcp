@@ -2,9 +2,9 @@
 
 ## gpt5_codex tool
 - File: src/tools/built-in/gpt5-codex.ts
-- Default model: `gpt-5.1-codex-max` (parameter default at line ~247).
+- Default model: `gpt-5.2-codex-max` (parameter default at line ~247).
 - Model options exposed via docs/parameter description (line ~53):
-  - `gpt-5.1-codex-max` (default)
+  - `gpt-5.2-codex-max` (default)
   - `gpt-5.2`
   - `gpt-5.1-codex`
   - `gpt-5.1-codex-mini`
@@ -18,6 +18,7 @@
 - Allowed models (enum-enforced in parameter schema at line ~113):
   - `gpt-5`
   - `gpt-5.1`
+  - `gpt-5.2` (default)
   - `gpt-5-mini`
   - `gpt-5-nano`
   - `gpt-5.1-chat-latest` (non-reasoning; verbosity forced to `medium`).
