@@ -2,23 +2,64 @@
 
 A Model Context Protocol (MCP) server providing access to OpenAI's GPT-5 API with SSE streaming and tool orchestration. Built for Claude Code.
 
-## Quick Setup
+## Setup
+
+### 1. Build the server
 
 ```bash
+git clone https://github.com/AllAboutAI-YT/gpt5mcp.git
+cd gpt5mcp
 npm install
 npm run build
 ```
 
-Configure `.env`:
-```
-OPENAI_API_KEY=sk-...
-CODEX_BIN=/opt/homebrew/bin/codex  # Optional, for gpt5_codex
+### 2. Add to Claude Code
+
+**Option A: CLI command**
+```bash
+# Basic (gpt5_agent only)
+claude mcp add gpt5 -e OPENAI_API_KEY=sk-... -- node /absolute/path/to/gpt5mcp/build/index.js
+
+# Full (with gpt5_codex support)
+claude mcp add gpt5 \
+  -e OPENAI_API_KEY=sk-... \
+  -e CODEX_BIN=/opt/homebrew/bin/codex \
+  -- node /absolute/path/to/gpt5mcp/build/index.js
 ```
 
-Add to Claude Code:
-```bash
-claude mcp add gpt5-server -e OPENAI_API_KEY=sk-... -- node /path/to/build/index.js
+**Option B: Manual config**
+
+Create/edit `~/.claude/.mcp.json`:
+```json
+{
+  "mcpServers": {
+    "gpt5": {
+      "command": "node",
+      "args": ["/absolute/path/to/gpt5mcp/build/index.js"],
+      "env": {
+        "OPENAI_API_KEY": "sk-...",
+        "CODEX_BIN": "/opt/homebrew/bin/codex"
+      }
+    }
+  }
+}
 ```
+
+### 3. Verify
+
+Restart Claude Code and check:
+```bash
+claude mcp list
+```
+
+You should see `gpt5` with tools `gpt5_agent` and `gpt5_codex`.
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENAI_API_KEY` | Yes | OpenAI API key with GPT-5 access |
+| `CODEX_BIN` | No | Path to Codex CLI binary (for `gpt5_codex` tool) |
 
 ## Active Tools
 
