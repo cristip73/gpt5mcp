@@ -1,5 +1,5 @@
 import { Tool, ToolExecutionContext, ToolResult } from '../base.js';
-import fetch from 'node-fetch';
+// Using native fetch (Node.js 18+)
 import { globalToolRegistry } from '../registry.js';
 import { promises as fs } from 'fs';
 import path from 'path';
