@@ -1,52 +1,48 @@
 {
   "name": "gpt5mcp",
-  "version": "1.0.0",
+  "version": "1.0.5",
   "type": "module",
   "description": "MCP server for OpenAI GPT-5 API integration with Claude Code. Provides gpt5_agent and gpt5_codex tools.",
+  "author": "cristip73",
+  "license": "MIT",
   "bin": {
     "gpt5mcp": "./build/index.js"
   },
   "files": [
     "build/**/*"
   ],
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.24.3",
-    "bytes": "^3.1.2",
-    "content-type": "^1.0.5",
-    "data-uri-to-buffer": "^4.0.1",
-    "depd": "^2.0.0",
-    "dotenv": "^16.6.1",
-    "fetch-blob": "^3.2.0",
-    "formdata-polyfill": "^4.0.10",
-    "http-errors": "^2.0.0",
-    "iconv-lite": "^0.6.3",
-    "inherits": "^2.0.4",
-    "node-domexception": "^1.0.0",
-    "node-fetch": "^3.3.2",
-    "raw-body": "^3.0.0",
-    "safer-buffer": "^2.1.2",
-    "setprototypeof": "^1.2.0",
-    "statuses": "^2.0.1",
-    "toidentifier": "^1.0.1",
-    "typescript": "^5.9.2",
-    "undici-types": "^6.21.0",
-    "unpipe": "^1.0.0",
-    "web-streams-polyfill": "^3.3.3",
-    "zod": "^3.25.76",
-    "zod-to-json-schema": "^3.24.6"
+  "keywords": [
+    "mcp",
+    "gpt5",
+    "openai",
+    "claude",
+    "claude-code",
+    "ai",
+    "agent"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
+    "prepublishOnly": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.24.3",
+    "dotenv": "^16.6.1",
+    "node-fetch": "^3.3.2",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cristip73/gpt5mcp.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "bugs": {
     "url": "https://github.com/cristip73/gpt5mcp/issues"
   },
