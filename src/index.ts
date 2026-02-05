@@ -69,7 +69,7 @@ async function main() {
 
   // Create MCP server
   const server = new Server({
-    name: "gpt5-server",
+    name: "gpt5mcp",
     version: "0.1.0"
   }, {
     capabilities: {

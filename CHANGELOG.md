@@ -1,5 +1,23 @@
 # Changelog
 
+## [2026-02-05] - Unified Naming
+
+### Changed
+- **Unified all names to `gpt5mcp`** - one name everywhere
+  - MCP server name: `gpt5-server` → `gpt5mcp`
+  - Server ID in configs: `gpt5` → `gpt5mcp`
+  - Binary names: `gpt5-server-*` → `gpt5mcp-*`
+- **package.json** - added `bin` field for npm global install
+- **Documentation** - updated all references
+
+### How to update existing setup
+```bash
+claude mcp remove gpt5
+claude mcp add gpt5mcp -e OPENAI_API_KEY=sk-... -- node /path/to/build/index.js
+```
+
+---
+
 ## [2026-02-05] - Documentation Update
 
 ### Updated

@@ -1,6 +1,6 @@
-# GPT-5 MCP Server
+# gpt5mcp
 
-**gpt5-server** - OpenAI GPT-5 API integration via MCP protocol for Claude Code.
+MCP server for OpenAI GPT-5 API integration with Claude Code.
 
 ## Active Tools
 

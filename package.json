@@ -2,11 +2,13 @@
   "name": "gpt5mcp",
   "version": "1.0.0",
   "type": "module",
-  "description": "A Model Context Protocol (MCP) server that provides seamless integration with OpenAI's GPT-5 API through Claude Code. This server enables you to leverage GPT-5's advanced capabilities directly within your Claude Code workflows.",
-  "main": "orbitale.js",
-  "directories": {
-    "doc": "docs"
+  "description": "MCP server for OpenAI GPT-5 API integration with Claude Code. Provides gpt5_agent and gpt5_codex tools.",
+  "bin": {
+    "gpt5mcp": "./build/index.js"
   },
+  "files": [
+    "build/**/*"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.24.3",
     "bytes": "^3.1.2",
@@ -40,13 +42,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AllAboutAI-YT/gpt5mcp.git"
+    "url": "git+https://github.com/cristip73/gpt5mcp.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/AllAboutAI-YT/gpt5mcp/issues"
+    "url": "https://github.com/cristip73/gpt5mcp/issues"
   },
-  "homepage": "https://github.com/AllAboutAI-YT/gpt5mcp#readme"
+  "homepage": "https://github.com/cristip73/gpt5mcp#readme"
 }

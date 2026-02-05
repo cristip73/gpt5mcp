@@ -1,39 +1,35 @@
-# GPT-5 MCP Server
+# gpt5mcp
 
-A Model Context Protocol (MCP) server providing access to OpenAI's GPT-5 API with SSE streaming and tool orchestration. Built for Claude Code.
+MCP server for OpenAI GPT-5 API integration with Claude Code. Provides `gpt5_agent` and `gpt5_codex` tools.
 
 ## Setup
 
-### 1. Build the server
+### Option A: npm install (recommended)
 
 ```bash
-git clone https://github.com/AllAboutAI-YT/gpt5mcp.git
+npm install -g gpt5mcp
+claude mcp add gpt5mcp -e OPENAI_API_KEY=sk-... -- gpt5mcp
+```
+
+### Option B: From source
+
+```bash
+git clone https://github.com/cristip73/gpt5mcp.git
 cd gpt5mcp
 npm install
 npm run build
+
+# Add to Claude Code
+claude mcp add gpt5mcp -e OPENAI_API_KEY=sk-... -- node /absolute/path/to/gpt5mcp/build/index.js
 ```
 
-### 2. Add to Claude Code
-
-**Option A: CLI command**
-```bash
-# Basic (gpt5_agent only)
-claude mcp add gpt5 -e OPENAI_API_KEY=sk-... -- node /absolute/path/to/gpt5mcp/build/index.js
-
-# Full (with gpt5_codex support)
-claude mcp add gpt5 \
-  -e OPENAI_API_KEY=sk-... \
-  -e CODEX_BIN=/opt/homebrew/bin/codex \
-  -- node /absolute/path/to/gpt5mcp/build/index.js
-```
-
-**Option B: Manual config**
+### Option C: Manual config
 
 Create/edit `~/.claude/.mcp.json`:
 ```json
 {
   "mcpServers": {
-    "gpt5": {
+    "gpt5mcp": {
       "command": "node",
       "args": ["/absolute/path/to/gpt5mcp/build/index.js"],
       "env": {
@@ -45,14 +41,14 @@ Create/edit `~/.claude/.mcp.json`:
 }
 ```
 
-### 3. Verify
+### Verify
 
 Restart Claude Code and check:
 ```bash
 claude mcp list
 ```
 
-You should see `gpt5` with tools `gpt5_agent` and `gpt5_codex`.
+You should see `gpt5mcp` with tools `gpt5_agent` and `gpt5_codex`.
 
 ### Environment Variables
 
@@ -187,8 +183,8 @@ GPT-5 Agent uses SSE (Server-Sent Events) to prevent MCP timeout:
 
 **Server not found:**
 ```bash
-claude mcp remove gpt5-server
-claude mcp add gpt5-server -e OPENAI_API_KEY=sk-... -- node /path/to/build/index.js
+claude mcp remove gpt5mcp
+claude mcp add gpt5mcp -e OPENAI_API_KEY=sk-... -- gpt5mcp
 ```
 
 **Socket hang up errors:**
@@ -198,6 +194,10 @@ claude mcp add gpt5-server -e OPENAI_API_KEY=sk-... -- node /path/to/build/index
 **Codex not working:**
 - Install Codex CLI: check `CODEX_BIN` environment variable
 - Image support disabled in Codex (known CLI limitation)
+
+## Credits
+
+Originally inspired by [AllAboutAI-YT](https://github.com/AllAboutAI-YT). Significantly rewritten with SSE streaming, Codex CLI integration, and improved tool architecture.
 
 ---
 
