@@ -59,7 +59,7 @@ export class GPT5CodexTool extends Tool {
       reasoning_effort: {
         type: 'string',
         enum: ['low', 'medium', 'high', 'extra_high'],
-        description: 'Reasoning depth: low, medium, high (default), extra_high (for gpt-5.1-codex-max/gpt-5.2)',
+        description: 'Reasoning depth: low, medium, high (default), extra_high',
         default: 'high'
       },
       verbosity: {
