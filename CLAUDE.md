@@ -12,7 +12,7 @@ Autonomous agent with SSE streaming, tool orchestration, and persistent reasonin
 
 ### `gpt5_codex`
 Codex CLI integration for deep code analysis and autonomous editing.
-- Default model: `gpt-5.2-codex`
+- Default model: `gpt-5.3-codex`
 - Modes: `research` (read-only), `auto_edit`, `full_auto`, `dangerous`
 
 ## Inactive Tools (disabled for performance)
