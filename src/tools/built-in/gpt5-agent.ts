@@ -783,11 +783,11 @@ export class GPT5AgentTool extends Tool {
         maxExecutionSeconds: number;
         toolTimeoutSeconds: number;
       }> = {
-        none: { maxIterations: 5, maxExecutionSeconds: 90, toolTimeoutSeconds: 15 },
-        minimal: { maxIterations: 6, maxExecutionSeconds: 120, toolTimeoutSeconds: 20 },
-        low: { maxIterations: 8, maxExecutionSeconds: 180, toolTimeoutSeconds: 30 },
-        medium: { maxIterations: 10, maxExecutionSeconds: 240, toolTimeoutSeconds: 45 },
-        high: { maxIterations: 12, maxExecutionSeconds: 900, toolTimeoutSeconds: 90 }
+        none: { maxIterations: 5, maxExecutionSeconds: 108, toolTimeoutSeconds: 15 },
+        minimal: { maxIterations: 6, maxExecutionSeconds: 144, toolTimeoutSeconds: 20 },
+        low: { maxIterations: 8, maxExecutionSeconds: 216, toolTimeoutSeconds: 30 },
+        medium: { maxIterations: 10, maxExecutionSeconds: 288, toolTimeoutSeconds: 45 },
+        high: { maxIterations: 12, maxExecutionSeconds: 1080, toolTimeoutSeconds: 90 }
       };
 
       const defaults = reasoningDefaults[reasoning_effort];

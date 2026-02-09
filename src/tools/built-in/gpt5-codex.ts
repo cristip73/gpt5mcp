@@ -102,7 +102,7 @@ export class GPT5CodexTool extends Tool {
       display_in_chat: { type: 'boolean', description: '[MCP] Show full output in chat response', default: true },
       timeout_sec: {
         type: 'number',
-        description: '[MCP] Process timeout (default: 375s, high: 750s, extra_high: 1125s)',
+        description: '[MCP] Process timeout (default: 450s, high: 900s, extra_high: 1350s)',
         minimum: 60,
         maximum: 1800,
         default: 375
@@ -260,8 +260,8 @@ export class GPT5CodexTool extends Tool {
     } = args;
 
     try {
-      // Auto-extend timeout for high reasoning (+25%): high=750s, extra_high=1125s
-      const defaultTimeout = reasoning_effort === 'extra_high' ? 1125 : (reasoning_effort === 'high' ? 750 : 375);
+      // Auto-extend timeout for high reasoning: default=450s, high=900s, extra_high=1350s
+      const defaultTimeout = reasoning_effort === 'extra_high' ? 1350 : (reasoning_effort === 'high' ? 900 : 450);
       const effectiveTimeoutSec = Math.min(1800, Math.max(60, timeout_sec ?? defaultTimeout));
 
       // Build the full prompt with inlined text files
