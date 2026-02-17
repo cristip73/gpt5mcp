@@ -62,7 +62,7 @@ async function processStreamingResponse(
   let buffer = '';
   let currentEvent = '';
   let lastActivityTime = Date.now();
-  const ACTIVITY_TIMEOUT = 120000; // 2 minutes without any data = timeout
+  const ACTIVITY_TIMEOUT = 180000; // 3 minutes without any data = timeout
 
   // Track function call building (arguments come in chunks)
   const pendingFunctionCalls = new Map<number, {
@@ -783,11 +783,11 @@ export class GPT5AgentTool extends Tool {
         maxExecutionSeconds: number;
         toolTimeoutSeconds: number;
       }> = {
-        none: { maxIterations: 5, maxExecutionSeconds: 108, toolTimeoutSeconds: 15 },
-        minimal: { maxIterations: 6, maxExecutionSeconds: 144, toolTimeoutSeconds: 20 },
-        low: { maxIterations: 8, maxExecutionSeconds: 216, toolTimeoutSeconds: 30 },
-        medium: { maxIterations: 10, maxExecutionSeconds: 288, toolTimeoutSeconds: 45 },
-        high: { maxIterations: 12, maxExecutionSeconds: 1080, toolTimeoutSeconds: 90 }
+        none: { maxIterations: 5, maxExecutionSeconds: 180, toolTimeoutSeconds: 20 },
+        minimal: { maxIterations: 6, maxExecutionSeconds: 240, toolTimeoutSeconds: 30 },
+        low: { maxIterations: 8, maxExecutionSeconds: 360, toolTimeoutSeconds: 45 },
+        medium: { maxIterations: 10, maxExecutionSeconds: 540, toolTimeoutSeconds: 60 },
+        high: { maxIterations: 12, maxExecutionSeconds: 1440, toolTimeoutSeconds: 120 }
       };
 
       const defaults = reasoningDefaults[reasoning_effort];
