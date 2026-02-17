@@ -36,6 +36,12 @@ const parseSSELine = (line: string): { event?: string; data?: string } => {
   return {};
 };
 
+// SSE debug logging - enable with GPT5_DEBUG_SSE=1 environment variable
+const SSE_DEBUG = process.env.GPT5_DEBUG_SSE === '1';
+function sseLog(msg: string) {
+  if (SSE_DEBUG) process.stderr.write(`[SSE] ${msg}\n`);
+}
+
 // Process streaming response from Responses API
 async function processStreamingResponse(
   response: any,
@@ -61,8 +67,21 @@ async function processStreamingResponse(
 
   let buffer = '';
   let currentEvent = '';
-  let lastActivityTime = Date.now();
   const ACTIVITY_TIMEOUT = 180000; // 3 minutes without any data = timeout
+  const eventCounts = new Map<string, number>(); // Track event counts for debug summary
+
+  // Safety net: abort the stream if no chunks arrive for ACTIVITY_TIMEOUT
+  // Unlike the old check (which ran right after receiving a chunk and could never fire),
+  // this uses a timer that resets on each chunk and fires independently of the loop
+  let activityTimer: ReturnType<typeof setTimeout> | null = null;
+  const abortController = new AbortController();
+  const resetActivityTimer = () => {
+    if (activityTimer) clearTimeout(activityTimer);
+    activityTimer = setTimeout(() => {
+      abortController.abort(new Error(`Streaming timeout: no data received for ${ACTIVITY_TIMEOUT / 1000}s`));
+    }, ACTIVITY_TIMEOUT);
+  };
+  resetActivityTimer();
 
   // Track function call building (arguments come in chunks)
   const pendingFunctionCalls = new Map<number, {
@@ -72,10 +91,18 @@ async function processStreamingResponse(
     arguments: string;
   }>();
 
+  // TextDecoder is required because Node.js fetch returns ReadableStream<Uint8Array>
+  // and Uint8Array.toString() returns comma-separated byte values (e.g. "72,101,108,108,111")
+  // instead of the actual text content. This was the root cause of empty parsing.
+  const decoder = new TextDecoder();
+
+  sseLog('Stream started');
+
   try {
     for await (const chunk of body) {
-      lastActivityTime = Date.now();
-      const text = chunk.toString();
+      if (abortController.signal.aborted) break;
+      resetActivityTimer();
+      const text = typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
       buffer += text;
 
       // Process complete lines
@@ -90,9 +117,12 @@ async function processStreamingResponse(
 
         if (parsed.event) {
           currentEvent = parsed.event;
+          eventCounts.set(currentEvent, (eventCounts.get(currentEvent) || 0) + 1);
         }
 
         if (parsed.data) {
+          sseLog(`${currentEvent}: ${parsed.data.slice(0, 200)}`);
+
           try {
             const eventData = JSON.parse(parsed.data);
 
@@ -114,7 +144,7 @@ async function processStreamingResponse(
                 break;
 
               case 'response.output_item.added':
-                // New output item - could be message, function_call, etc.
+                // New output item - could be message, function_call, web_search, etc.
                 if (eventData.item?.type === 'function_call') {
                   const idx = eventData.output_index ?? 0;
                   pendingFunctionCalls.set(idx, {
@@ -124,6 +154,7 @@ async function processStreamingResponse(
                     arguments: ''
                   });
                 }
+                sseLog(`output_item.added: type=${eventData.item?.type}, index=${eventData.output_index}`);
                 break;
 
               case 'response.function_call_arguments.delta':
@@ -169,6 +200,29 @@ async function processStreamingResponse(
                 accumulator.error = eventData.message || JSON.stringify(eventData);
                 accumulator.done = true;
                 break;
+
+              // Informational events - log but don't need special handling
+              case 'response.in_progress':
+              case 'response.output_item.done':
+              case 'response.content_part.added':
+              case 'response.content_part.done':
+              case 'response.output_text.done':
+              case 'response.reasoning_summary_text.done':
+              case 'response.web_search_call.in_progress':
+              case 'response.web_search_call.searching':
+              case 'response.web_search_call.completed':
+              case 'response.file_search_call.in_progress':
+              case 'response.file_search_call.searching':
+              case 'response.file_search_call.completed':
+              case 'response.code_interpreter_call.in_progress':
+              case 'response.code_interpreter_call.interpreting':
+              case 'response.code_interpreter_call.completed':
+                // Known events that don't need data extraction
+                break;
+
+              default:
+                sseLog(`UNHANDLED event: ${currentEvent} data=${JSON.stringify(eventData).slice(0, 300)}`);
+                break;
             }
           } catch (parseError) {
             // Skip malformed JSON, could be [DONE] marker
@@ -179,15 +233,21 @@ async function processStreamingResponse(
         }
       }
 
-      // Check for activity timeout (heartbeat)
-      if (Date.now() - lastActivityTime > ACTIVITY_TIMEOUT) {
-        throw new Error(`Streaming timeout: no data received for ${ACTIVITY_TIMEOUT / 1000}s`);
+      // Exit the stream loop as soon as we're done - don't wait for more chunks
+      if (accumulator.done) {
+        break;
       }
     }
   } catch (streamError: any) {
     if (!accumulator.done) {
       accumulator.error = streamError.message || 'Stream error';
     }
+  } finally {
+    if (activityTimer) clearTimeout(activityTimer);
+    // Always log a summary of what we received
+    const summary = Array.from(eventCounts.entries()).map(([e, c]) => `${e}:${c}`).join(', ');
+    sseLog(`Stream ended. done=${accumulator.done}, error=${accumulator.error || 'none'}, text=${accumulator.outputText.length}chars, toolCalls=${accumulator.toolCalls.length}`);
+    sseLog(`Event counts: ${summary || 'none'}`);
   }
 
   // Finalize any pending function calls that weren't explicitly closed
