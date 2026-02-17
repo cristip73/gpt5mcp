@@ -810,6 +810,29 @@ export class GPT5AgentTool extends Tool {
   }
 
   async execute(args: GPT5AgentArgs, context: ToolExecutionContext): Promise<ToolResult> {
+    // MCP-level hard timeout: ultimate safety net above all internal timeouts.
+    // If processStreamingResponse() or the agent loop hangs for any reason,
+    // this ensures the MCP call always returns instead of blocking forever.
+    const mcpTimeoutSeconds = Math.min(1800, Math.max(30,
+      (args.max_execution_time_seconds ?? 810) // default to medium
+    )) + 60; // 60s grace period above the effective execution timeout
+
+    return Promise.race([
+      this._executeInner(args, context),
+      new Promise<ToolResult>((_, reject) =>
+        setTimeout(() => reject(new Error(
+          `MCP safety timeout: agent did not complete within ${mcpTimeoutSeconds}s`
+        )), mcpTimeoutSeconds * 1000)
+      )
+    ]).catch((error) => ({
+      tool_call_id: `agent_mcp_timeout_${Date.now()}`,
+      output: '',
+      error: `Agent execution failed: ${error instanceof Error ? error.message : String(error)}`,
+      status: 'error' as const
+    }));
+  }
+
+  private async _executeInner(args: GPT5AgentArgs, context: ToolExecutionContext): Promise<ToolResult> {
     try {
       const startTime = Date.now();
       let {
@@ -843,11 +866,11 @@ export class GPT5AgentTool extends Tool {
         maxExecutionSeconds: number;
         toolTimeoutSeconds: number;
       }> = {
-        none: { maxIterations: 5, maxExecutionSeconds: 180, toolTimeoutSeconds: 20 },
-        minimal: { maxIterations: 6, maxExecutionSeconds: 240, toolTimeoutSeconds: 30 },
-        low: { maxIterations: 8, maxExecutionSeconds: 360, toolTimeoutSeconds: 45 },
-        medium: { maxIterations: 10, maxExecutionSeconds: 540, toolTimeoutSeconds: 60 },
-        high: { maxIterations: 12, maxExecutionSeconds: 1440, toolTimeoutSeconds: 120 }
+        none: { maxIterations: 5, maxExecutionSeconds: 270, toolTimeoutSeconds: 30 },
+        minimal: { maxIterations: 6, maxExecutionSeconds: 360, toolTimeoutSeconds: 45 },
+        low: { maxIterations: 8, maxExecutionSeconds: 540, toolTimeoutSeconds: 70 },
+        medium: { maxIterations: 10, maxExecutionSeconds: 810, toolTimeoutSeconds: 90 },
+        high: { maxIterations: 12, maxExecutionSeconds: 1800, toolTimeoutSeconds: 180 }
       };
 
       const defaults = reasoningDefaults[reasoning_effort];
