@@ -38,8 +38,8 @@ const ACTIVE_TOOLS = {
   execute_custom_function: false,
   code_interpreter: false,
   image_generation: false,
-  gpt5_agent: true,
-  gpt5_codex: true,
+  search: true,
+  codex: true,
 } as const;
 
 // Utility function to register all built-in tools
@@ -66,10 +66,10 @@ export function registerAllBuiltInTools() {
   if (ACTIVE_TOOLS.image_generation) {
     globalToolRegistry.register(new ImageGenerationTool());
   }
-  if (ACTIVE_TOOLS.gpt5_agent) {
+  if (ACTIVE_TOOLS.search) {
     globalToolRegistry.register(new GPT5AgentTool());
   }
-  if (ACTIVE_TOOLS.gpt5_codex) {
+  if (ACTIVE_TOOLS.codex) {
     globalToolRegistry.register(new GPT5CodexTool());
   }
 

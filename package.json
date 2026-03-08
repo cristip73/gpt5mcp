@@ -2,7 +2,7 @@
   "name": "gpt5mcp",
   "version": "1.0.6",
   "type": "module",
-  "description": "MCP server for OpenAI GPT-5 API integration with Claude Code. Provides gpt5_agent and gpt5_codex tools.",
+  "description": "MCP server for OpenAI GPT-5 API integration with Claude Code. Provides search and codex tools.",
   "author": "cristip73",
   "license": "MIT",
   "bin": {

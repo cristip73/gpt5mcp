@@ -42,7 +42,7 @@ interface GPT5CodexArgs {
 }
 
 export class GPT5CodexTool extends Tool {
-  name = 'gpt5_codex';
+  name = 'codex';
   description = 'Runs Codex CLI exec jobs with gpt-5.3-codex (default) or other models. Supports reasoning levels: low, medium, high, extra_high';
   type = 'function' as const;
 

@@ -324,8 +324,8 @@ interface ResponsesAPIRequest {
 }
 
 export class GPT5AgentTool extends Tool {
-  name = 'gpt5_agent';
-  description = 'Autonomously solves tasks via GPT-5 family (default: gpt-5.2), orchestrating registered tools, web search, code interpreter, and file actions';
+  name = 'search';
+  description = 'Search the web and get clean, ready-to-use content via GPT-5 (formerly gpt5_agent)';
   type = 'function' as const;
   
   parameters = {

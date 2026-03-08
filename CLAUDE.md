@@ -4,13 +4,13 @@ MCP server for OpenAI GPT-5 API integration with Claude Code.
 
 ## Active Tools
 
-### `gpt5_agent`
-Autonomous agent with SSE streaming, tool orchestration, and persistent reasoning.
+### `search`
+Web search and research via GPT-5 (formerly `gpt5_agent`).
 - Default model: `gpt-5.2`
 - Features: web search, code interpreter, file operations, conversation continuation
 - Output: saved to `gpt5_docs/` folder
 
-### `gpt5_codex`
+### `codex`
 Codex CLI integration for deep code analysis and autonomous editing.
 - Default model: `gpt-5.3-codex`
 - Modes: `research` (read-only), `auto_edit`, `full_auto`, `dangerous`
