@@ -12,7 +12,7 @@ Web search and research via GPT-5 (formerly `gpt5_agent`).
 
 ### `codex`
 Codex CLI integration for deep code analysis and autonomous editing.
-- Default model: `gpt-5.4`
+- Default model: `gpt-5.3-codex`
 - Modes: `research` (read-only), `auto_edit`, `full_auto`, `dangerous`
 
 ## Inactive Tools (disabled for performance)
