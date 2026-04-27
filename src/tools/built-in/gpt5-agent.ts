@@ -349,7 +349,7 @@ export class GPT5AgentTool extends Tool {
       },
       model: {
         type: 'string',
-        enum: ['gpt-5.4', 'gpt-5.2', 'gpt-5.1', 'gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5.1-chat-latest'],
+        enum: ['gpt-5.5', 'gpt-5.4', 'gpt-5.2', 'gpt-5.1', 'gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5.1-chat-latest'],
         description: 'Model variant to use. Note: gpt-5.1-chat-latest is non-reasoning and only supports verbosity: medium',
         default: 'gpt-5.4'
       },
@@ -395,7 +395,7 @@ export class GPT5AgentTool extends Tool {
       show_reasoning_summary: {
         type: 'boolean',
         description: 'Include reasoning summary in output',
-        default: true
+        default: false
       },
       system_prompt: {
         type: 'string',
@@ -844,7 +844,7 @@ export class GPT5AgentTool extends Tool {
         max_execution_time_seconds,
         tool_timeout_seconds,
         show_preambles = true,
-        show_reasoning_summary = true,
+        show_reasoning_summary = false,
         context: taskContext,
         quality_over_cost = false,
         save_to_file = true,
@@ -1332,7 +1332,7 @@ export class GPT5AgentTool extends Tool {
           fileInfo = await this.saveAgentOutput(
             task,
             outputForFile,
-            reasoningSummary || null,
+            (show_reasoning_summary && reasoningSummary) || null,
             {
               response_id: previousResponseId || 'unknown',
               model,
