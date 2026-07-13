@@ -267,7 +267,7 @@ interface GPT5AgentArgs {
   verbosity?: 'low' | 'medium' | 'high';
 
   // Optional Model Selection
-  model?: 'gpt-5.4' | 'gpt-5' | 'gpt-5.1' | 'gpt-5-mini' | 'gpt-5-nano' | 'gpt-5.1-chat-latest';
+  model?: 'gpt-5.6-sol' | 'gpt-5.6-terra' | 'gpt-5.4' | 'gpt-5' | 'gpt-5.1' | 'gpt-5-mini' | 'gpt-5-nano' | 'gpt-5.1-chat-latest';
   
   // Optional Tool Configuration
   enable_web_search?: boolean;
@@ -349,9 +349,9 @@ export class GPT5AgentTool extends Tool {
       },
       model: {
         type: 'string',
-        enum: ['gpt-5.5', 'gpt-5.4', 'gpt-5.2', 'gpt-5.1', 'gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5.1-chat-latest'],
-        description: 'Model variant to use. Note: gpt-5.1-chat-latest is non-reasoning and only supports verbosity: medium',
-        default: 'gpt-5.4'
+        enum: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.5', 'gpt-5.4', 'gpt-5.2', 'gpt-5.1', 'gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5.1-chat-latest'],
+        description: 'Model variant to use. Default gpt-5.6-sol; gpt-5.6-terra e mai rapid pentru task-uri simple. Note: gpt-5.1-chat-latest is non-reasoning and only supports verbosity: medium',
+        default: 'gpt-5.6-sol'
       },
       enable_web_search: {
         type: 'boolean',
@@ -839,7 +839,7 @@ export class GPT5AgentTool extends Tool {
         task,
         reasoning_effort,
         verbosity = 'medium',
-        model = 'gpt-5.4',
+        model = 'gpt-5.6-sol',
         max_iterations,
         max_execution_time_seconds,
         tool_timeout_seconds,

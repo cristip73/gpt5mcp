@@ -43,7 +43,7 @@ interface GPT5CodexArgs {
 
 export class GPT5CodexTool extends Tool {
   name = 'codex';
-  description = 'Runs Codex CLI exec jobs with gpt-5.5 (default) or other models. Supports reasoning levels: low, medium, high, extra_high';
+  description = 'Runs Codex CLI exec jobs with gpt-5.6-sol (default) or other models. Supports reasoning levels: low, medium, high, extra_high';
   type = 'function' as const;
 
   parameters = {
@@ -52,8 +52,8 @@ export class GPT5CodexTool extends Tool {
       task: { type: 'string', description: 'Task prompt for Codex CLI exec' },
       model: {
         type: 'string',
-        description: 'Model id (e.g., gpt-5.5, gpt-5.3-codex, gpt-5.2-codex, gpt-5.1-codex-max, gpt-5.2, gpt-5.1-codex, gpt-5.1-codex-mini, o3, o4-mini)',
-        default: 'gpt-5.5'
+        description: 'Model id (e.g., gpt-5.6-sol (default), gpt-5.6-terra (mai rapid, pentru task-uri simple), gpt-5.5, gpt-5.3-codex, gpt-5.2-codex, gpt-5.1-codex-max, gpt-5.2, gpt-5.1-codex, gpt-5.1-codex-mini, o3, o4-mini)',
+        default: 'gpt-5.6-sol'
       },
       profile: { type: 'string', description: 'Codex CLI config profile' },
       reasoning_effort: {
@@ -225,7 +225,7 @@ export class GPT5CodexTool extends Tool {
         `## 🤖 GPT-5 Codex Task Completed`,
         '',
         `**Task**: ${task}`,
-        `**Model**: ${meta.model || 'gpt-5.1-codex-max'}`,
+        `**Model**: ${meta.model || 'gpt-5.6-sol'}`,
         `**Mode**: ${meta.editMode}`,
         `**Execution Time**: ${(meta.execMs/1000).toFixed(1)}s`,
         '',
@@ -245,7 +245,7 @@ export class GPT5CodexTool extends Tool {
     const start = Date.now();
     const {
       task,
-      model = 'gpt-5.5',
+      model = 'gpt-5.6-sol',
       profile,
       reasoning_effort = 'high',
       verbosity,
