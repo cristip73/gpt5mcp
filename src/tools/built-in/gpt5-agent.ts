@@ -470,7 +470,9 @@ export class GPT5AgentTool extends Tool {
     const tools = [];
     
     // Add built-in tools based on configuration
-    if (args.enable_web_search === true) {
+    // Schema declares default: true, but MCP does not inject schema defaults into args.
+    // Opt-out (!== false) so an omitted flag matches what the schema advertises.
+    if (args.enable_web_search !== false) {
       tools.push({ type: 'web_search_preview' });
     }
     
